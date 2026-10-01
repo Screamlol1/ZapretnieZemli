@@ -1,0 +1,7 @@
+import './rules.test.mjs';
+import './lifepath.test.mjs';
+import './talent-ui.test.mjs';
+import './growth.test.mjs';
+import './reforged.test.mjs';
+import './battle-hex.test.mjs';
+import './battle-magic.test.mjs';
