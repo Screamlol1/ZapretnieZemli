@@ -67,7 +67,7 @@ class Game:
         resume = resume if identity else secrets.token_urlsafe(32)
         if len(room.get('identities',{}))>=500 and not identity:
             raise ValueError('Предел участников кампании достигнут.')
-        room.setdefault('identities',{})[resume]=dict(owner=owner,role=role)
+        room.setdefault('identities',{})[resume]=dict(owner=owner,role=role,name=name)
         self.save(room)
         for t in [t for t,x in self.sessions.items() if x['room']==room['id'] and x['owner']==owner]:
             del self.sessions[t]
@@ -85,14 +85,20 @@ class Game:
 
     def view(self, s):
         room = self.room(s['room'])
+        identities=room.get('identities',{})
         room.pop('gmKey'); room.pop('playerKey')
         room.pop('identities',None)
+        if s['role']=='gm':
+            room['owners']=[dict(owner=x['owner'],name=x.get('name','Участник'),role=x['role']) for x in identities.values()]
+        room.pop('combatOwners',None)
         room['characters'] = [c if s['role']=='gm' or c['owner']==s['owner'] else
-                              {k:v for k,v in c.items() if k in ('id','owner','name','kind')} for c in room['characters']
+                              {**{k:v for k,v in c.items() if k in ('id','owner','name','kind','visual')},'kin':c.get('sheet',{}).get('kin')} for c in room['characters']
                               if s['role']=='gm' or not c.get('hidden')]
         if s['role']!='gm':
             room['tokens'] = [t for t in room['tokens'] if not t.get('hidden')]
             room['maps'] = {kind:{k:v for k,v in cells.items() if not v.get('hidden')} for kind,cells in room['maps'].items()}
+            for u in room.get('combat',{}).get('units',[]):
+                if u.get('monster'):u['monster']={}
         room['members'] = [dict(name=x['name'], role=x['role'], owner=x['owner']) for x in self.sessions.values()
                            if x['room']==s['room'] and time.time()-x['seen']<45]
         room['me'] = dict(role=s['role'], owner=s['owner'], name=s['name'])
@@ -102,7 +108,7 @@ class Game:
         room = self.room(s['room'])
         action = data.get('action')
         gm = s['role']=='gm'
-        if action in ('paint','token','event','deleteCharacter') and not gm:
+        if action in ('paint','event','deleteCharacter','assignCharacter','deleteToken','combatCreate','combatClose','actor','combatManual') and not gm:
             raise PermissionError('Действие доступно только Мастеру.')
         if action=='character':
             sheet = data.get('sheet')
@@ -122,15 +128,70 @@ class Game:
             old = next((c for c in room['characters'] if c['id']==cid),None)
             if old and old['owner']!=s['owner'] and not gm:
                 raise PermissionError('Нельзя изменять чужого персонажа.')
+            if old and room.get('combat',{}).get('phase')=='combat' and cid in room.get('combatOwners',{}):
+                raise ValueError('Во время боя лист занят. Завершите бой перед изменением.')
             if len(room['characters'])>=100 and not old:
                 raise ValueError('Предел: 100 персонажей.')
             if not gm and not old and sum(c['owner']==s['owner'] for c in room['characters'])>=5:
                 raise ValueError('Предел: пять персонажей игрока.')
             c = dict(id=cid,owner=old['owner'] if old else s['owner'],name=sheet['name'][:60],
-                     kind='npc' if gm and data.get('npc') else 'pc',hidden=bool(gm and data.get('hidden')),sheet=sheet)
+                     kind=old['kind'] if old else ('npc' if gm and data.get('npc') else 'pc'),
+                     hidden=old.get('hidden',False) if old else bool(gm and data.get('hidden')),sheet=sheet)
+            if old and old['kind']!='pc':raise ValueError('ПВ и чудовища изменяются в редакторе Мастера.')
+            c['runtime']=old.get('runtime',{}) if old else dict(current=sheet['attrs'].copy(),wp=0)
+            if old and 'visual' in old:c['visual']=old['visual']
+            c['runtime']['current']={k:min(c['runtime'].get('current',{}).get(k,v),v) for k,v in sheet['attrs'].items()}
             room['characters'] = [x for x in room['characters'] if x['id']!=cid]+[c]
+        elif action=='assignCharacter':
+            c=next((c for c in room['characters'] if c['id']==data.get('id')),None)
+            if not c: raise ValueError('Персонаж не найден.')
+            if room.get('combat',{}).get('phase')=='combat': raise ValueError('Назначение владельца доступно вне боя.')
+            owner=data.get('owner')
+            if not any(x['owner']==owner for x in room.get('identities',{}).values()): raise ValueError('Участник не найден.')
+            c['owner']=owner
+            for t in room['tokens']:
+                if t.get('characterId')==c['id']:t['owner']=owner
+        elif action=='visual':
+            c=next((c for c in room['characters'] if c['id']==data.get('id')),None)
+            if not c or not gm and c['owner']!=s['owner']:raise PermissionError('Это не ваш персонаж.')
+            v=data.get('visual')
+            if not isinstance(v,dict) or set(v)!={'body','cloak','cloth','skin','hair','monster'} or v['body'] not in ('slim','broad') or v['monster'] not in ('spider','reptile','beast','horned'):
+                raise ValueError('Некорректная внешность.')
+            for k in ('cloak','cloth','skin','hair'):
+                color=v[k]
+                if not isinstance(color,str) or len(color)!=7 or color[0]!='#' or any(ch not in '0123456789abcdefABCDEF' for ch in color[1:]):raise ValueError('Некорректный цвет.')
+            c['visual']=v
+            for u in room.get('combat',{}).get('units',[]):
+                if u['id']==c['id']:u['visual']=v
+        elif action=='actor':
+            old=next((c for c in room['characters'] if c['id']==data.get('id')),None)
+            if old and old['kind']=='pc':raise ValueError('Герой редактируется в конструкторе.')
+            if room.get('combat',{}).get('phase')=='combat':raise ValueError('Редактор параметров доступен вне активного боя.')
+            try:checked=subprocess.run(['node',str(ROOT/'validate-actor.mjs')],input=json.dumps(data.get('actor')),text=True,encoding='utf-8',capture_output=True,timeout=8)
+            except (OSError,subprocess.TimeoutExpired):raise ValueError('Редактор недоступен: проверьте Node.js.')
+            if checked.returncode:raise ValueError(checked.stderr.strip()[:500])
+            actor=json.loads(checked.stdout);actor['id']=old['id'] if old else secrets.token_hex(8)
+            actor['owner']=old['owner'] if old else s['owner']
+            if len(room['characters'])>=100 and not old:raise ValueError('Предел: 100 персонажей.')
+            if old and 'visual' in old:actor['visual']=old['visual']
+            if actor['kind']=='npc':actor['runtime']=dict(current=actor['sheet']['attrs'].copy(),wp=0)
+            else:actor['runtime']=dict(current=dict(str=actor['monster']['strength'],agi=actor['monster']['agility'],wit=1,emp=1),wp=0)
+            if old and old['kind']==actor['kind']:
+                actor['runtime']['current']={k:min(old.get('runtime',{}).get('current',{}).get(k,v),v) for k,v in actor['runtime']['current'].items()}
+            room['characters']=[c for c in room['characters'] if c['id']!=actor['id']]+[actor]
+        elif action=='runtime':
+            c=next((c for c in room['characters'] if c['id']==data.get('id')),None)
+            if not c or not gm:raise PermissionError('Текущее состояние изменяет Мастер.')
+            if room.get('combat',{}).get('phase')=='combat':raise ValueError('Во время боя параметры изменяет боевой движок.')
+            current=data.get('current',{});wp=data.get('wp')
+            maximum=c['sheet']['attrs'] if c['kind']!='monster' else dict(str=c['monster']['strength'],agi=c['monster']['agility'],wit=1,emp=1)
+            if not isinstance(current,dict) or set(current)!=set(maximum) or any(type(v)!=int or not 0<=v<=maximum[k] for k,v in current.items()) or type(wp)!=int or not 0<=wp<=10 or c['kind']!='pc' and wp!=0:
+                raise ValueError('Некорректное текущее состояние.')
+            c['runtime']={**c.get('runtime',{}),'current':current,'wp':wp}
         elif action=='deleteCharacter':
+            if room.get('combat',{}).get('phase')=='combat' and data.get('id') in room.get('combatOwners',{}):raise ValueError('Участник активного боя не удаляется.')
             room['characters'] = [c for c in room['characters'] if c['id']!=data.get('id')]
+            room['tokens']=[t for t in room['tokens'] if t.get('characterId')!=data.get('id')]
         elif action=='paint':
             kind = data.get('map')
             x,y = data.get('x'),data.get('y')
@@ -145,10 +206,78 @@ class Game:
             if type(x)!=int or type(y)!=int or not 0<=x<24 or not 0<=y<16 or data.get('map') not in room['maps']:
                 raise ValueError('Клетка вне карты.')
             tid = str(data.get('id') or secrets.token_hex(8))
+            old=next((t for t in room['tokens'] if t['id']==tid),None)
+            if not gm:
+                if not old or old.get('owner')!=s['owner'] or old.get('hidden'):raise PermissionError('Можно двигать только свой видимый жетон.')
+                if data['map']!=old['map']:raise PermissionError('Игрок не переносит жетоны между картами.')
+                if room['maps'][data['map']].get(f'{x},{y}',{}).get('hidden'):raise ValueError('Клетка ещё не открыта.')
+                if data['map']=='battle' and room.get('combat',{}).get('phase')=='combat':raise ValueError('В бою двигайтесь на гексовой карте боя.')
+            character=next((c for c in room['characters'] if c['id']==data.get('characterId')),None)
+            if gm and data.get('characterId') and not character:raise ValueError('Персонаж не найден.')
             if len(room['tokens'])>=100 and not any(t['id']==tid for t in room['tokens']):
                 raise ValueError('Предел: 100 жетонов.')
             room['tokens'] = [t for t in room['tokens'] if t['id']!=tid]+[dict(id=tid,x=x,y=y,map=data['map'],
-                                    name=str(data.get('name') or 'Отряд')[:40],hidden=bool(data.get('hidden')))]
+                                    name=old['name'] if not gm else str(data.get('name') or character and character['name'] or 'Отряд')[:40],
+                                    hidden=old.get('hidden',False) if not gm else bool(data.get('hidden')),
+                                    characterId=character['id'] if character else old.get('characterId') if old else None,
+                                    owner=character['owner'] if character else old.get('owner') if old else s['owner'])]
+        elif action=='deleteToken':
+            room['tokens']=[t for t in room['tokens'] if t['id']!=data.get('id')]
+        elif action=='combatCreate':
+            if room.get('combat',{}).get('phase')=='combat':raise ValueError('Сначала завершите текущий бой.')
+            choices=data.get('units')
+            if not isinstance(choices,list) or not 2<=len(choices)<=10:raise ValueError('Выберите 2–10 бойцов.')
+            characters=[];owners={};seen=set()
+            for choice in choices:
+                if not isinstance(choice,dict):raise ValueError('Некорректный отряд.')
+                c=next((c for c in room['characters'] if c['id']==choice.get('id')),None)
+                if not c or c.get('hidden') or c['id'] in seen or choice.get('team') not in ('A','B'):raise ValueError('Нужны разные открытые персонажи и отряды A/B.')
+                seen.add(c['id']);characters.append(dict(character=c,team=choice['team']));owners[c['id']]=c['owner']
+            if len(set(c['team'] for c in characters))!=2:raise ValueError('Нужен хотя бы один боец в каждом отряде.')
+            room['combat']=self.engine(dict(create=characters,mapId=data.get('mapId','road')))
+            room['combatOwners']=owners;room['combatRevision']=room.get('combatRevision',0)+1
+        elif action=='combatAction':
+            battle=room.get('combat')
+            if not battle:raise ValueError('Бой не подготовлен.')
+            if data.get('revision')!=room.get('combatRevision'):raise ValueError('Бой обновился. Повторите действие после синхронизации.')
+            cmd=data.get('command',{})
+            if not isinstance(cmd,dict):raise ValueError('Некорректная команда.')
+            name=cmd.get('action');actor=cmd.get('unit') if name in ('move','defense') else (battle['order'][battle['turn']] if battle['order'] else None)
+            if not gm:
+                if name in ('start','ai','resolve') or not actor or room.get('combatOwners',{}).get(actor)!=s['owner']:raise PermissionError('Вы управляете только своим бойцом.')
+                char=next((c for c in room['characters'] if c['id']==actor),None)
+                if not char or char['kind']!='pc':raise PermissionError('ПВ и чудовищами управляет Мастер.')
+                if name!='defense' and battle['phase']=='combat' and actor!=battle['order'][battle['turn']]:raise PermissionError('Сейчас ход другого бойца.')
+            room['combat']=self.engine(dict(battle=battle,command=cmd))
+            before=next((u for u in battle['units'] if u['id']==actor),None)
+            hit_ids=[u['id'] for u in room['combat']['units'] if any(u[k]<next(v for v in battle['units'] if v['id']==u['id'])[k] for k in ('str','agi','wits','emp'))]
+            room['combat']['event']=dict(id=secrets.token_hex(8),actor=actor,kind='move' if name=='move' else 'cast' if name=='cast' else 'strike' if name in ('slash','stab','shoot','punch','shove','monsterAttack') else 'idle',target=cmd.get('target'),hitIds=hit_ids,origin=dict(q=before['q'],r=before['r']) if before else None,time=time.time())
+            room['combatRevision']+=1
+            for c in room['characters']:
+                u=next((u for u in room['combat']['units'] if u['id']==c['id']),None)
+                if u:c['runtime']=dict(current=dict(str=u['str'],agi=u['agi'],wit=u['wits'],emp=u['emp']),wp=u['wp'],gearBonus=u['gear'],armor=u['armor'])
+        elif action=='combatManual':
+            battle=room.get('combat')
+            if not battle or battle['phase']!='combat':raise ValueError('Нет активного боя.')
+            if data.get('revision')!=room.get('combatRevision'):raise ValueError('Бой обновился. Повторите действие.')
+            note=data.get('note');actor=data.get('actor');target=data.get('target');attribute=data.get('attribute');damage=data.get('damage')
+            caster=next((u for u in battle['units'] if u['id']==actor),None);victim=next((u for u in battle['units'] if u['id']==target),None)
+            if not caster or not victim or not isinstance(note,str) or not note.strip() or len(note)>500 or attribute not in ('str','agi','wits','emp') or type(damage)!=int or not 0<=damage<=100:raise ValueError('Некорректное решение Мастера.')
+            if victim.get('monster') and attribute in ('wits','emp'):raise ValueError('Чудовище невосприимчиво к страху и урону Разума/Эмпатии.')
+            if data.get('slow',True):
+                if battle['order'][battle['turn']]!=actor or caster['slow']<1:raise ValueError('Нет медленного действия у активного бойца.')
+                caster['slow']-=1
+            wp=data.get('wp',0)
+            if type(wp)!=int or wp<0 or wp>caster['wp']:raise ValueError('Недостаточно силы воли.')
+            caster['wp']-=wp;victim[attribute]=max(0,victim[attribute]-damage)
+            battle['log']=(battle['log']+[f'Мастер: {note.strip()}. {victim["name"]}: {attribute} −{damage}.'])[-300:]
+            battle['event']=dict(id=secrets.token_hex(8),actor=actor,target=target,hitIds=[target] if damage else [],kind='cast',time=time.time())
+            room['combatRevision']+=1
+            for c in room['characters']:
+                u=next((u for u in battle['units'] if u['id']==c['id']),None)
+                if u:c['runtime']=dict(current=dict(str=u['str'],agi=u['agi'],wit=u['wits'],emp=u['emp']),wp=u['wp'],gearBonus=u['gear'],armor=u['armor'])
+        elif action=='combatClose':
+            room.pop('combat',None);room.pop('combatOwners',None);room['combatRevision']=room.get('combatRevision',0)+1
         elif action=='event':
             events=['На тропе обнаружены свежие следы большого зверя.', 'Путники просят провести их до ближайшего поселения.',
                     'Над руинами кружат вороны. Изнутри слышен стук.', 'Туман скрывает дорогу; вдали горит одинокий огонь.',
@@ -176,6 +305,14 @@ class Game:
         room['revision']+=1
         self.save(room)
         return self.view(s)
+
+    def engine(self, payload):
+        try:
+            result=subprocess.run(['node',str(ROOT/'combat-engine.mjs')],input=json.dumps(payload),text=True,
+                                  encoding='utf-8',capture_output=True,timeout=8)
+        except (OSError,subprocess.TimeoutExpired):raise ValueError('Боевой движок недоступен; проверьте Node.js.')
+        if result.returncode:raise ValueError(result.stderr.strip()[:500] or 'Ошибка боевого движка.')
+        return json.loads(result.stdout)
 
 def make_handler(game):
     class Handler(BaseHTTPRequestHandler):

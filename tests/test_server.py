@@ -21,8 +21,9 @@ class CampaignTests(unittest.TestCase):
     def tearDown(self):
         self.game.db.close();self.tmp.cleanup()
     def test_gm_permissions_and_hidden_map(self):
-        for action in ['paint','token','event','deleteCharacter']:
+        for action in ['paint','event','deleteCharacter','actor','combatCreate']:
             with self.assertRaises(PermissionError):self.game.action(self.ps,{'action':action})
+        with self.assertRaises(PermissionError):self.game.action(self.ps,dict(action='token',map='battle',x=1,y=1))
         self.game.action(self.gs,dict(action='paint',map='battle',x=2,y=3,terrain='wall',hidden=True))
         self.game.action(self.gs,dict(action='token',map='battle',x=2,y=3,name='Засада',hidden=True))
         player=self.game.view(self.ps)
@@ -71,5 +72,70 @@ class CampaignTests(unittest.TestCase):
             with urllib.request.urlopen(req) as response:self.assertEqual(len(json.load(response)['members']),11)
             with urllib.request.urlopen(url+'/') as response:self.assertIn('Запретные Земли',response.read().decode())
         finally:server.shutdown();server.server_close();thread.join()
+
+    def make_pc(self):
+        import subprocess
+        raw=subprocess.check_output(['node','--input-type=module','-e',"import {blank} from './public/tools/rules.js'; console.log(JSON.stringify({...blank(),name:'Герой'}))"],cwd=Path(__file__).parents[1],text=True,encoding='utf-8')
+        result=self.game.action(self.ps,dict(action='character',sheet=json.loads(raw)))
+        return next(c for c in result['characters'] if c.get('kind')=='pc' and c['owner']==self.ps['owner'])
+
+    def make_npc(self,hidden=False):
+        data=dict(kind='npc',name='Орк',hidden=hidden,kin='orc',profession='fighter',attrs=dict(str=5,agi=3,wit=3,emp=2),skills={k:0 for k in ['melee','might','craft','endure','sleight','shoot','move','stealth','survive','lore','insight','scout','influence','animal','perform','heal']},gear=['broadsword'])
+        return self.game.action(self.gs,dict(action='actor',actor=data))['characters'][-1]
+
+    def test_owned_tokens_and_assignment(self):
+        pc=self.make_pc()
+        result=self.game.action(self.gs,dict(action='token',map='world',x=1,y=1,characterId=pc['id']))
+        token=result['tokens'][0]
+        moved=self.game.action(self.ps,dict(action='token',id=token['id'],map='world',x=2,y=1,name='Подмена',hidden=True))['tokens'][0]
+        self.assertEqual(moved['name'],pc['name']);self.assertFalse(moved['hidden'])
+        self.game.action(self.gs,dict(action='assignCharacter',id=pc['id'],owner=self.gs['owner']))
+        with self.assertRaises(PermissionError):self.game.action(self.ps,dict(action='token',id=token['id'],map='world',x=3,y=1))
+        with self.assertRaises(PermissionError):self.game.action(self.ps,dict(action='character',id=pc['id'],sheet=pc['sheet']))
+
+    def test_visual_permissions_and_validation(self):
+        pc=self.make_pc();v=dict(body='broad',cloak='#123456',cloth='#bbaa77',skin='#cc9977',hair='#221100',monster='beast')
+        self.game.action(self.ps,dict(action='visual',id=pc['id'],visual=v))
+        npc=self.make_npc()
+        with self.assertRaises(PermissionError):self.game.action(self.ps,dict(action='visual',id=npc['id'],visual=v))
+        v['cloak']='url(evil)'
+        with self.assertRaises(ValueError):self.game.action(self.ps,dict(action='visual',id=pc['id'],visual=v))
+
+    def test_monster_schema_and_hidden_notes(self):
+        monster=dict(kind='monster',name='Сторож',hidden=True,monster=dict(strength=16,agility=3,armor=2,notes='Тайная слабость',attacks=[dict(name='Удар',dice=8,damage=1,range=1,type='physical',parry=False,dodge=True,note='') for _ in range(6)]))
+        c=self.game.action(self.gs,dict(action='actor',actor=monster))['characters'][-1]
+        self.assertNotIn(c['id'],[c['id'] for c in self.game.view(self.ps)['characters']])
+        monster['hidden']=False
+        self.game.action(self.gs,dict(action='actor',id=c['id'],actor=monster))
+        public=next(x for x in self.game.view(self.ps)['characters'] if x['id']==c['id'])
+        self.assertNotIn('monster',public)
+        pc=self.make_pc()
+        self.game.action(self.gs,dict(action='combatCreate',units=[dict(id=pc['id'],team='A'),dict(id=c['id'],team='B')]))
+        exposed=next(u for u in self.game.view(self.ps)['combat']['units'] if u['id']==c['id'])
+        self.assertEqual(exposed['monster'],{})
+        monster['monster']['attacks'][0]['dice']=999
+        with self.assertRaises(ValueError):self.game.action(self.gs,dict(action='actor',actor=monster))
+
+    def test_combat_turn_ownership_and_stale_command(self):
+        pc=self.make_pc();npc=self.make_npc()
+        view=self.game.action(self.gs,dict(action='combatCreate',units=[dict(id=pc['id'],team='A'),dict(id=npc['id'],team='B')],mapId='road'))
+        rev=view['combatRevision']
+        with self.assertRaises(PermissionError):self.game.action(self.ps,dict(action='combatAction',revision=rev,command=dict(action='start')))
+        view=self.game.action(self.gs,dict(action='combatAction',revision=rev,command=dict(action='start')))
+        rev=view['combatRevision'];active=view['combat']['order'][0]
+        with self.assertRaises(ValueError):self.game.action(self.gs,dict(action='combatAction',revision=rev-1,command=dict(action='end')))
+        if active!=pc['id']:
+            with self.assertRaises(PermissionError):self.game.action(self.ps,dict(action='combatAction',revision=rev,command=dict(action='end')))
+            view=self.game.action(self.gs,dict(action='combatAction',revision=rev,command=dict(action='end')));rev=view['combatRevision']
+        view=self.game.action(self.ps,dict(action='combatAction',revision=rev,command=dict(action='end')))
+        self.assertEqual(view['combat']['order'][view['combat']['turn']],npc['id'])
+        with self.assertRaises(ValueError):self.game.action(self.ps,dict(action='character',id=pc['id'],sheet=pc['sheet']))
+        with self.assertRaises(PermissionError):self.game.action(self.ps,dict(action='combatManual',note='Подмена'))
+
+    def test_npc_runtime_and_non_hero_creation(self):
+        npc=self.make_npc()
+        self.assertEqual(npc['sheet']['attrs']['str'],5)
+        self.assertEqual(npc['sheet']['kin'],'orc')
+        with self.assertRaises(ValueError):self.game.action(self.gs,dict(action='runtime',id=npc['id'],current=npc['sheet']['attrs'],wp=1))
 
 if __name__=='__main__':unittest.main()
