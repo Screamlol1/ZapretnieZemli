@@ -40,6 +40,26 @@ class TravelCycleTests(unittest.TestCase):
         for i,p in enumerate(self.players):self.act('travelPlan',session=p,id=f'hero{i}',job='hike' if hike else 'rest',role='lead' if hike and i==0 else 'none')
         self.act('travelPlan',id='npc',job='hike' if hike else 'rest',role='none')
 
+    def test_party_change_preserves_journey_and_repeated_setup_is_rejected(self):
+        self.act('travelPlan',session=self.players[0],id='hero0',job='hike',role='lead')
+        self.act('travelRoute',path=[dict(x=1,y=0)])
+        before=self.game.view(self.gm)['journey']
+        with self.assertRaises(ValueError):self.act('travelSetup',party=['hero0'],x=3,y=2,season='winter')
+        self.assertEqual(self.game.view(self.gm)['journey'],before)
+        with self.assertRaises(PermissionError):self.act('travelParty',session=self.players[0],party=['hero0'])
+        t=self.act('travelParty',party=['hero0','hero1'])['journey']
+        for field in ('position','day','quarter','visited','history','route','plans','planVersions'):
+            self.assertEqual(t[field],before[field])
+        self.assertFalse(t['gmReady'])
+        old_cycle=t['cycleId']
+        t=self.act('travelParty',party=['hero0','hero1'],season='winter',mounted=True)['journey']
+        self.assertEqual(t['season'],'winter');self.assertTrue(t['mounted']);self.assertNotEqual(t['cycleId'],old_cycle)
+        self.assertEqual(t['plans'],before['plans']);self.assertEqual(t['route'],before['route'])
+        with self.assertRaises(ValueError):self.act('travelParty',party=['hero0','hero1'],season='unknown')
+        with self.assertRaises(ValueError):self.act('travelRelocate',x=4,y=3,confirmed=False)
+        t=self.act('travelRelocate',x=4,y=3,confirmed=True)['journey']
+        self.assertEqual(t['position'],dict(x=4,y=3));self.assertEqual(t['plans'],before['plans']);self.assertEqual(t['route'],[])
+
     def resolve(self):
         for p in self.game.view(self.gm)['journey']['pending']:
             self.act('travelResolve',id=p['id'],note='Private outcome',reveal=False)
@@ -92,7 +112,8 @@ class TravelCycleTests(unittest.TestCase):
         self.game.action(self.players[0],draft)
         with self.assertRaises(ValueError):self.game.action(self.players[0],draft)
         old=self.payload('travelPlan',id='hero0',job='sleep')
-        self.act('travelSetup',party=['hero0'],x=2,y=0,season='summer')
+        self.act('travelParty',party=['hero0'])
+        self.act('travelRelocate',x=2,y=0,confirmed=True)
         with self.assertRaises(ValueError):self.game.action(self.players[0],old)
 
     @patch('campaign_rules.dice',side_effect=lambda n,sides=6:[6]*n)
@@ -168,7 +189,7 @@ class TravelCycleTests(unittest.TestCase):
         extra=[self.game.login(dict(name=f'Player {i}',code=self.auth['code'],key=self.auth['playerKey'])) for i in range(2,10)]
         auths=self.auths+extra;players=[self.game.session(a['token']) for a in auths]
         room=self.game.room(self.gm['room']);room['characters']=[self.hero(f'hero{i}',p['owner']) for i,p in enumerate(players)]
-        self.game.save(room);self.act('travelSetup',party=[f'hero{i}' for i in range(10)],x=0,y=0,season='summer')
+        self.game.save(room);self.act('travelParty',party=[f'hero{i}' for i in range(10)])
         self.act('travelReady',ready=True)
         requests=[(a['token'],self.payload('travelPlan',id=f'hero{i}',job='rest')) for i,a in enumerate(auths)]
         http=ThreadingHTTPServer(('127.0.0.1',0),make_handler(self.game))

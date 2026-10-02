@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 from campaign_rules import apply as campaign_action, state as journey_state, coordinate, participants
 
 from terrain_map import load_reference, effective_world
+from inventory_rules import apply as inventory_action, public_items
 
 ROOT = Path(__file__).parent
 LOCK = threading.RLock()
@@ -143,6 +144,7 @@ class Game:
         room['mapArtwork']['referenceAvailable']=(self.reference_root/'forbidden-lands.jpg').is_file()
         room['mapArtwork']['uploadAvailable']=bool(artwork.get('file'))
         room['mapFog']={kind:[k for k,v in cells.items() if v.get('hidden')] for kind,cells in room['maps'].items()}
+        room['items']=public_items(room,s)
         room['characters'] = [c if s['role']=='gm' or c['owner']==s['owner'] and c['kind']=='pc' else
                               {**{k:v for k,v in c.items() if k in ('id','owner','name','kind','visual')},'kin':c.get('sheet',{}).get('kin')} for c in room['characters']
                               if s['role']=='gm' or not c.get('hidden')]
@@ -176,7 +178,9 @@ class Game:
             raise ValueError('Персонаж выполняет занятие. Завершите текущую четверть перед изменением листа или владельца.')
         if action in ('paint','mapLocation','mapArtwork','worldLayout','event','deleteCharacter','assignCharacter','deleteToken','combatCreate','combatClose','actor','combatManual') and not gm:
             raise PermissionError('Действие доступно только Мастеру.')
-        if isinstance(action,str) and (action.startswith('travel') or action.startswith('hold')):
+        if action in ('inventoryOpen','itemCreate','itemEdit','itemTransfer'):
+            inventory_action(room,s,data)
+        elif isinstance(action,str) and (action.startswith('travel') or action.startswith('hold')):
             campaign_action(room,s,data)
         elif action=='character':
             sheet = data.get('sheet')
@@ -209,6 +213,7 @@ class Game:
             if old and old['kind']!='pc':raise ValueError('ПВ и чудовища изменяются в редакторе Мастера.')
             c['runtime']=old.get('runtime',{}) if old else dict(current=sheet['attrs'].copy(),wp=0,resources=validated['resources'])
             if old and 'visual' in old:c['visual']=old['visual']
+            if old and old.get('inventoryInitialized'):c['inventoryInitialized']=True
             c['runtime']['current']={k:min(c['runtime'].get('current',{}).get(k,v),v) for k,v in sheet['attrs'].items()}
             room['characters'] = [x for x in room['characters'] if x['id']!=cid]+[c]
         elif action=='assignCharacter':
@@ -243,6 +248,7 @@ class Game:
             actor['owner']=old['owner'] if old else s['owner']
             if len(room['characters'])>=100 and not old:raise ValueError('Предел: 100 персонажей.')
             if old and 'visual' in old:actor['visual']=old['visual']
+            if old and old.get('inventoryInitialized'):actor['inventoryInitialized']=True
             if actor['kind']=='npc':actor['runtime']=dict(current=actor['sheet']['attrs'].copy(),wp=0)
             else:actor['runtime']=dict(current=dict(str=actor['monster']['strength'],agi=actor['monster']['agility'],wit=1,emp=1),wp=0)
             if old and old['kind']==actor['kind']:
@@ -260,6 +266,9 @@ class Game:
             c['runtime']={**c.get('runtime',{}),'current':current,'wp':wp}
         elif action=='deleteCharacter':
             if room.get('combat',{}).get('phase')=='combat' and data.get('id') in room.get('combatOwners',{}):raise ValueError('Участник активного боя не удаляется.')
+            for item in room.get('items',[]):
+                if item['location']==dict(kind='character',id=data.get('id')):
+                    item['location']=dict(kind='treasury',id='');item['version']+=1
             room['characters'] = [c for c in room['characters'] if c['id']!=data.get('id')]
             room['tokens']=[t for t in room['tokens'] if t.get('characterId')!=data.get('id')]
         elif action=='worldLayout':

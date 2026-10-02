@@ -139,9 +139,10 @@ def apply(room,s,data):
     if action=='travelComplete' and 'completionVersion' in data and data['completionVersion']!=t['completionVersions'].get(who,0):raise ValueError('Результаты действий изменились. Проверьте их перед подтверждением.')
     if action not in ('travelPlan','travelConsume','travelComplete') and not gm: raise PermissionError('Действие доступно только Мастеру.')
     if room.get('combat',{}).get('phase')=='combat': raise ValueError('Сначала завершите активный бой.')
-    if t['phase']=='resolving' and action in ('travelSetup','travelPlan','travelRoute','travelReady','travelAdvance'):
+    if t['phase']=='resolving' and action in ('travelSetup','travelParty','travelRelocate','travelPlan','travelRoute','travelReady','travelAdvance'):
         raise ValueError('Действия уже выполняются. Сначала завершите текущую четверть.')
     if action=='travelSetup':
+        if t['party']:raise ValueError('Отряд уже собран. Используйте изменение состава или отдельный перенос отряда.')
         ids=data.get('party'); p=coordinate(data,room); season=data.get('season')
         if not isinstance(ids,list) or not 1<=len(ids)<=11 or len(set(ids))!=len(ids): raise ValueError('Выберите 1–11 разных участников.')
         if any(not any(c['id']==cid and c['kind']!='monster' and not c.get('hidden') for c in room['characters']) for cid in ids): raise ValueError('Нужны открытые герои или ПВ.')
@@ -150,6 +151,25 @@ def apply(room,s,data):
         t.update(party=ids,position=p,season=season,mounted=data.get('mounted') is True,plans={},route=[],gmReady=False,completed={},completionVersions={},blocker='',planVersions={},routeVersion=t['routeVersion']+1,cycleId=secrets.token_hex(8))
         if key(p) not in t['visited']:t['visited'].append(key(p))
         journal(room,f"Отряд собран. Старт: {hex_label(p,room)}.")
+    elif action=='travelParty':
+        ids=data.get('party')
+        season=data.get('season',t['season']); mounted=data.get('mounted',t.get('mounted',False))
+        if season not in ('spring','summer','autumn','winter') or not isinstance(mounted,bool):raise ValueError('Проверьте время года и способ передвижения.')
+        if not t['party']:raise ValueError('Сначала соберите отряд.')
+        if not isinstance(ids,list) or not 1<=len(ids)<=11 or len(set(ids))!=len(ids):raise ValueError('Выберите 1–11 разных участников.')
+        if any(not any(c['id']==cid and c['kind']!='monster' and not c.get('hidden') for c in room['characters']) for cid in ids):raise ValueError('Нужны открытые герои или ПВ.')
+        if set(ids)!=set(t['party']) or season!=t['season'] or mounted!=t.get('mounted',False):
+            t.update(party=ids,season=season,mounted=mounted)
+            for field in ('plans','planVersions'):
+                t[field]={k:v for k,v in t[field].items() if k in ids}
+            t['gmReady']=False;t['completed']={};t['routeVersion']+=1;t['cycleId']=secrets.token_hex(8)
+            journal(room,'Состав или условия путешествия изменены; маршрут и заявки оставшихся участников сохранены.')
+    elif action=='travelRelocate':
+        if data.get('confirmed') is not True:raise ValueError('Подтвердите перенос отряда и отмену текущего маршрута.')
+        if not t['party'] or t['pending']:raise ValueError('Нужен собранный отряд без незавершённых событий.')
+        p=coordinate(data,room);t['position']=p;t['route']=[];t['gmReady']=False;t['completed']={};t['routeVersion']+=1;t['cycleId']=secrets.token_hex(8)
+        if key(p) not in t['visited']:t['visited'].append(key(p))
+        journal(room,f"Мастер перенёс отряд в {hex_label(p,room)}. Заявки сохранены; маршрут нужно задать заново.")
     elif action=='travelPlan':
         cid=data.get('id'); c=next((c for c in room['characters'] if c['id']==cid),None)
         if cid not in t['party'] or not c or not gm and (c['owner']!=s['owner'] or c['kind']!='pc'): raise PermissionError('Выберите своего героя из отряда.')
@@ -273,7 +293,7 @@ def advance(room,data,defer_clock=False):
     if not t['party']:raise ValueError('Сначала соберите отряд.')
     if t['pending']:raise ValueError('Сначала Мастер должен разрешить ожидающие события.')
     party=[next((c for c in room['characters'] if c['id']==cid and not c.get('hidden')),None) for cid in t['party']]
-    if any(c is None for c in party):raise ValueError('Состав отряда изменился. Соберите его заново.')
+    if any(c is None for c in party):raise ValueError('Участник больше недоступен. Измените состав отряда.')
     plans=t['plans']
     if any(c['id'] not in plans for c in party):raise ValueError('Каждый участник должен выбрать занятие.')
     if any(min(c['runtime']['current'].values())<=0 for c in party):raise ValueError('В отряде есть сломленный персонаж. Сначала разрешите его состояние по правилам.')
