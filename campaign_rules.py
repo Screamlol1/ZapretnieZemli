@@ -10,6 +10,7 @@ TERRAINS = {
     'road': ('Дорога', 2, -1, 1), 'wall': ('Преграда', 0, 0, 0)}
 JOBS = ('hike', 'watch', 'camp', 'rest', 'sleep', 'forageFood', 'forageWater', 'hunt', 'fish', 'explore', 'work')
 JOB_NAMES={'forageFood':'сбор пищи','forageWater':'поиск воды','fish':'рыбалка','camp':'лагерь','hunt':'охота'}
+CONDITIONS = {'hungry':'Голод', 'thirsty':'Жажда', 'sleepy':'Недосып', 'cold':'Переохлаждение'}
 FUNCTIONS = {
     'fireplace': dict(name='Очаг', cost={'stone':20}, days=1, requires=[], builder=False, tools='Нет', effect='Тепло и освещение внутри цитадели.'),
     'bakery': dict(name='Пекарня', cost={'stone':200,'wood':40}, days=7, requires=['fireplace'], builder=True, tools='Кувалда, пила', effect='Повар или пекарь: до 12 муки → еда за четверть дня.'),
@@ -98,6 +99,12 @@ def apply(room,s,data):
         mod=integer(data.get('modifier',0),-10,10) if gm else previous.get('modifier',0)
         gear=integer(data.get('gear',0),0,10) if gm else previous.get('gear',0)
         t['plans'][cid]=dict(job=job,role=role,modifier=mod,gear=gear,scoutModifier=integer(data.get('scoutModifier',0),-10,10) if gm else previous.get('scoutModifier',0),endureModifier=integer(data.get('endureModifier',0),-10,10) if gm else previous.get('endureModifier',0),equipped=(data.get('equipped') is True if gm else previous.get('equipped',False)),darkvision=(data.get('darkvision') is True if gm else previous.get('darkvision',False)))
+    elif action=='travelConditions':
+        c=next((c for c in room['characters'] if c['id']==data.get('id') and c['kind']!='monster'),None)
+        flags=data.get('conditions')
+        if not c or not isinstance(flags,dict) or set(flags)!=set(CONDITIONS) or any(type(v)!=bool for v in flags.values()):raise ValueError('Укажите четыре состояния персонажа.')
+        c.setdefault('runtime',{})['conditions']=flags
+        journal(room,c['name']+': состояния — '+(', '.join(CONDITIONS[k] for k,v in flags.items() if v) or 'нет')+'.')
     elif action=='travelSupplies':
         c=next((c for c in room['characters'] if c['id']==data.get('id')),None)
         if not c or c['kind']=='monster':raise ValueError('Персонаж не найден.')
@@ -117,11 +124,13 @@ def apply(room,s,data):
             if res!='food' or source not in ('vegetables','meat','fish') or not t['finds'][source]:raise ValueError('Свежая пища закончилась или испортилась.')
             batch=min((b for b in t['batches'] if b['kind']==source and b['amount']>0),key=lambda b:b['expires'])
             batch['amount']-=1;used[res]=t['day'];fresh_stock(t)
+            rt.setdefault('conditions',{})['hungry']=False
             journal(room,c['name']+': использована одна единица найденной пищи ('+source+').');t['revision']+=1;return
         size=rt.get('resources',{}).get(res,0)
         if not size:raise ValueError('Припасы закончились. Используйте найденную пищу или пополните запасы через Мастера.')
         roll=dice(1,size)[0]; new=[0,6,8,10,12][[0,6,8,10,12].index(size)-1] if roll<=2 else size
         rt['resources'][res]=new;used[res]=t['day']
+        rt.setdefault('conditions',{})['hungry' if res=='food' else 'thirsty']=False
         journal(room,f"{c['name']}: {'еда' if res=='food' else 'вода'} D{size} → {roll}; остаток {'D'+str(new) if new else 'пусто'}.")
     elif action=='travelFinds':
         kind=data.get('kind');amount=integer(data.get('amount'),1,100)
@@ -132,7 +141,16 @@ def apply(room,s,data):
         history=next((h for h in reversed(t['history']) if 'plans' in h),None)
         if not c or not history or not counts_as_rest(c,history['plans'].get(c['id'],{})) or data.get('confirmed') is not True:raise ValueError('Нужен завершённый отдых или сон (в том числе от достоинства); подтвердите отсутствие препятствующих состояний и прерываний.')
         if min(c['runtime']['current'].values())<=0:raise ValueError('Восстановление сломленного персонажа сначала разрешается по отдельным правилам.')
-        c['runtime']['current']=c['sheet']['attrs'].copy();journal(room,c['name']+': Мастер подтвердил восстановление после отдыха.')
+        flags=c['runtime'].setdefault('conditions',{})
+        if history['plans'].get(c['id'],{}).get('job')=='sleep':flags['sleepy']=False
+        blocked=set()
+        if flags.get('hungry'):blocked.add('str')
+        if flags.get('sleepy'):blocked.add('wit')
+        if flags.get('cold'):blocked.update(('str','wit'))
+        if flags.get('thirsty'):blocked.update(c['sheet']['attrs'])
+        restored=[k for k in c['sheet']['attrs'] if k not in blocked]
+        for k in restored:c['runtime']['current'][k]=c['sheet']['attrs'][k]
+        journal(room,c['name']+': подтверждён отдых. Восстановлены: '+(', '.join({'str':'ТЕЛ','agi':'ЛОВ','wit':'РАЗ','emp':'ЭМП'}[k] for k in restored) or 'нет — мешают состояния')+'.')
     elif action=='travelResolve':
         item=next((p for p in t['pending'] if p['id']==data.get('id')),None)
         note=str(data.get('note','')).strip()[:1000]

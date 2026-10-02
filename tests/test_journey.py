@@ -29,6 +29,41 @@ class JourneyTests(unittest.TestCase):
         p=dict(x=3,y=1)
         self.assertTrue(adjacent(p,dict(x=4,y=0)));self.assertTrue(adjacent(p,dict(x=4,y=2)))
         self.assertFalse(adjacent(p,dict(x=2,y=2)));self.assertFalse(adjacent(p,p))
+
+    @patch('campaign_rules.dice',side_effect=lambda n,sides=6:[6]*n)
+    def test_conditions_limit_recovery_and_sleep_clears_sleepiness(self,_):
+        flags=dict(hungry=True,thirsty=False,sleepy=True,cold=False)
+        with self.assertRaises(PermissionError):self.act('travelConditions',session=self.player,id='hero',conditions=flags)
+        with self.assertRaises(ValueError):self.act('travelConditions',id='hero',conditions={'hungry':1})
+        for flags,expected in [
+            (dict(hungry=True,thirsty=False,sleepy=True,cold=False),dict(str=1,agi=3,wit=1,emp=2)),
+            (dict(hungry=False,thirsty=False,sleepy=False,cold=True),dict(str=1,agi=3,wit=1,emp=2)),
+            (dict(hungry=False,thirsty=True,sleepy=False,cold=False),dict(str=1,agi=1,wit=1,emp=1))]:
+            self.clear();self.act('travelConditions',id='hero',conditions=flags)
+            room=self.game.room(self.gm['room']);room['characters'][0]['runtime']['current']=dict(str=1,agi=1,wit=1,emp=1);self.game.save(room)
+            self.plan('rest','none');self.act('travelAdvance',path=[])
+            v=self.act('travelRecover',id='hero',confirmed=True)
+            self.assertEqual(v['characters'][0]['runtime']['current'],expected)
+        self.clear();self.act('travelConditions',id='hero',conditions=dict(hungry=False,thirsty=False,sleepy=True,cold=False))
+        self.plan('sleep','none');self.act('travelAdvance',path=[])
+        v=self.act('travelRecover',id='hero',confirmed=True)
+        self.assertFalse(v['characters'][0]['runtime']['conditions']['sleepy'])
+        self.assertEqual(v['characters'][0]['runtime']['current'],v['characters'][0]['sheet']['attrs'])
+
+    @patch('campaign_rules.dice',side_effect=lambda n,sides=6:[1]*n)
+    def test_last_ration_removes_condition_and_failed_consumption_does_not(self,_):
+        self.act('travelConditions',id='hero',conditions=dict(hungry=True,thirsty=True,sleepy=False,cold=False))
+        v=self.act('travelConsume',id='hero',resource='food',session=self.player)
+        self.assertFalse(v['characters'][0]['runtime']['conditions']['hungry'])
+        self.assertTrue(v['characters'][0]['runtime']['conditions']['thirsty'])
+        self.assertEqual(v['characters'][0]['runtime']['resources']['food'],0)
+        self.act('travelSupplies',id='hero',resources=dict(food=0,water=0))
+        with self.assertRaises(ValueError):self.act('travelConsume',id='hero',resource='water')
+        self.assertTrue(self.game.view(self.gm)['characters'][0]['runtime']['conditions']['thirsty'])
+        self.act('travelFinds',kind='meat',amount=1,confirmed=True)
+        room=self.game.room(self.gm['room']);room['characters'][0]['runtime']['conditions']['hungry']=True;room['characters'][0]['runtime']['consumed']={};self.game.save(room)
+        v=self.act('travelConsume',id='hero',resource='food',source='meat')
+        self.assertFalse(v['characters'][0]['runtime']['conditions']['hungry'])
     @patch('campaign_rules.dice',side_effect=lambda n,sides=6:[6]*n)
     def test_travel_unvisited_and_return(self,_):
         self.plan();v=self.act('travelAdvance',path=[dict(x=1,y=0),dict(x=2,y=0)])

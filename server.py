@@ -1,5 +1,7 @@
 """Campaign server. Python 3.11+, no third-party dependencies."""
 import argparse
+import base64
+import binascii
 import json
 import mimetypes
 import secrets
@@ -17,6 +19,7 @@ LOCK = threading.RLock()
 
 class Game:
     def __init__(self, database):
+        self.image_root = Path(database).parent/'map-images'
         self.db = sqlite3.connect(database, check_same_thread=False)
         self.db.execute('CREATE TABLE IF NOT EXISTS rooms (id TEXT PRIMARY KEY, data TEXT)')
         self.sessions = {}
@@ -93,6 +96,11 @@ class Game:
         if s['role']=='gm':
             room['owners']=[dict(owner=x['owner'],name=x.get('name','Участник'),role=x['role']) for x in identities.values()]
         room.pop('combatOwners',None)
+        artwork=room.get('mapArtwork',{})
+        room['mapArtwork']={k:v for k,v in artwork.items() if k in ('style','revision')}
+        room['mapArtwork']['referenceAvailable']=(ROOT/'local-assets/world-map.jpg').is_file()
+        room['mapArtwork']['uploadAvailable']=bool(artwork.get('file'))
+        room['mapFog']={kind:[k for k,v in cells.items() if v.get('hidden')] for kind,cells in room['maps'].items()}
         room['characters'] = [c if s['role']=='gm' or c['owner']==s['owner'] and c['kind']=='pc' else
                               {**{k:v for k,v in c.items() if k in ('id','owner','name','kind','visual')},'kin':c.get('sheet',{}).get('kin')} for c in room['characters']
                               if s['role']=='gm' or not c.get('hidden')]
@@ -102,6 +110,11 @@ class Game:
             room['journey']['history']=[e for e in room['journey']['history'] if not e.get('private')]
             room['tokens'] = [t for t in room['tokens'] if not t.get('hidden')]
             room['maps'] = {kind:{k:v for k,v in cells.items() if not v.get('hidden')} for kind,cells in room['maps'].items()}
+            for cells in room['maps'].values():
+                for cell in cells.values():
+                    cell.pop('gmNote',None)
+                    if cell.pop('siteHidden',False):
+                        for k in ('label','note','siteType'):cell.pop(k,None)
             for u in room.get('combat',{}).get('units',[]):
                 if u.get('monster'):u['monster']={}
         room['members'] = [dict(name=x['name'], role=x['role'], owner=x['owner']) for x in self.sessions.values()
@@ -113,7 +126,7 @@ class Game:
         room = self.room(s['room'])
         action = data.get('action')
         gm = s['role']=='gm'
-        if action in ('paint','event','deleteCharacter','assignCharacter','deleteToken','combatCreate','combatClose','actor','combatManual') and not gm:
+        if action in ('paint','mapLocation','mapArtwork','event','deleteCharacter','assignCharacter','deleteToken','combatCreate','combatClose','actor','combatManual') and not gm:
             raise PermissionError('Действие доступно только Мастеру.')
         if isinstance(action,str) and (action.startswith('travel') or action.startswith('hold')):
             campaign_action(room,s,data)
@@ -200,6 +213,21 @@ class Game:
             if room.get('combat',{}).get('phase')=='combat' and data.get('id') in room.get('combatOwners',{}):raise ValueError('Участник активного боя не удаляется.')
             room['characters'] = [c for c in room['characters'] if c['id']!=data.get('id')]
             room['tokens']=[t for t in room['tokens'] if t.get('characterId')!=data.get('id')]
+        elif action=='mapArtwork':
+            artwork=room.setdefault('mapArtwork',{'revision':0})
+            if data.get('revision')!=artwork['revision']:raise ValueError('Карта изменена другим действием. Повторите выбор.')
+            style=data.get('style')
+            if style not in ('terrain','reference','upload'):raise ValueError('Неизвестный фон карты.')
+            if style=='reference' and not (ROOT/'local-assets/world-map.jpg').is_file():raise ValueError('Карта мира не установлена на сервере.')
+            if style=='upload' and not artwork.get('file'):raise ValueError('Сначала загрузите карту кампании.')
+            artwork.update(style=style,revision=artwork['revision']+1)
+        elif action=='mapLocation':
+            x,y=data.get('x'),data.get('y')
+            if type(x)!=int or type(y)!=int or not 0<=x<24 or not 0<=y<16:raise ValueError('Гекс вне карты.')
+            site=data.get('siteType')
+            if site not in ('landmark','settlement','ruin','castle','cave','none'):raise ValueError('Неизвестный тип места.')
+            cell=room['maps']['world'].setdefault(f'{x},{y}',dict(terrain='plain',hidden=False))
+            cell.update(label=str(data.get('label','')).strip()[:80],note=str(data.get('note',''))[:1500],gmNote=str(data.get('gmNote',''))[:1500],siteType=site,siteHidden=data.get('siteHidden') is True)
         elif action=='paint':
             kind = data.get('map')
             x,y = data.get('x'),data.get('y')
@@ -208,7 +236,8 @@ class Game:
             terrain = data.get('terrain')
             if terrain not in ('plain','forest','darkforest','hills','highmountain','marsh','water','mountain','wall','rough','road','ruin'):
                 raise ValueError('Неизвестная местность.')
-            room['maps'][kind][f'{x},{y}'] = dict(terrain=terrain,hidden=bool(data.get('hidden')))
+            cell=room['maps'][kind].setdefault(f'{x},{y}',{})
+            cell.update(terrain=terrain,hidden=data.get('hidden') is True)
         elif action=='token':
             x,y = data.get('x'),data.get('y')
             if type(x)!=int or type(y)!=int or not 0<=x<24 or not 0<=y<16 or data.get('map') not in room['maps']:
@@ -314,6 +343,33 @@ class Game:
         self.save(room)
         return self.view(s)
 
+    def upload_map(self, s, data):
+        if s['role']!='gm':raise PermissionError('Карту загружает Мастер.')
+        room=self.room(s['room']);art=room.setdefault('mapArtwork',{'revision':0})
+        if data.get('revision')!=art['revision']:raise ValueError('Фон уже изменился. Повторите загрузку.')
+        try:raw=base64.b64decode(data.get('image',''),validate=True)
+        except (ValueError,TypeError,binascii.Error):raise ValueError('Нужен PNG.')
+        if not 33<=len(raw)<=4000000 or raw[:8]!=b'\x89PNG\r\n\x1a\n' or raw[12:16]!=b'IHDR':raise ValueError('Нужен PNG до 4 МБ.')
+        width,height=int.from_bytes(raw[16:20],'big'),int.from_bytes(raw[20:24],'big')
+        if not 1<=width<=3000 or not 1<=height<=3000 or width*height>6000000:raise ValueError('Карта: до 3000 px по стороне и 6 мегапикселей.')
+        self.image_root.mkdir(parents=True,exist_ok=True)
+        filename=room['id']+'-'+secrets.token_hex(12)+'.png'
+        (self.image_root/filename).write_bytes(raw)
+        art.update(file=filename,style='upload',revision=art['revision']+1)
+        room['revision']+=1;self.save(room)
+        return self.view(s)
+
+    def map_image(self, s):
+        art=self.room(s['room']).get('mapArtwork',{})
+        if art.get('style')=='upload':
+            filename=art.get('file','')
+            if not filename.startswith(s['room']+'-') or Path(filename).name!=filename:raise ValueError('Карта недоступна.')
+            path=self.image_root/filename
+        elif art.get('style','reference' if (ROOT/'local-assets/world-map.jpg').is_file() else 'terrain')=='reference':path=ROOT/'local-assets/world-map.jpg'
+        else:raise ValueError('Фон карты не выбран.')
+        if not path.is_file():raise ValueError('Изображение карты недоступно.')
+        return path.read_bytes(), 'image/png' if path.suffix=='.png' else 'image/jpeg'
+
     def engine(self, payload):
         try:
             result=subprocess.run(['node',str(ROOT/'combat-engine.mjs')],input=json.dumps(payload),text=True,
@@ -333,7 +389,7 @@ def make_handler(game):
         def do_POST(self):
             try:
                 length=int(self.headers.get('Content-Length','0'))
-                if not 0<length<=150000: raise ValueError('Некорректный размер запроса.')
+                if not 0<length<=(5500000 if self.path=='/api/map-image' else 150000): raise ValueError('Некорректный размер запроса.')
                 # JSON + same-origin only: browsers cannot submit cross-origin forms to the API.
                 if self.headers.get('Content-Type','').split(';')[0]!='application/json':
                     raise ValueError('Ожидается application/json.')
@@ -346,6 +402,8 @@ def make_handler(game):
                         result=game.login(data,self.path=='/api/create')
                     elif self.path=='/api/action':
                         result=game.action(game.session(self.headers.get('Authorization','')),data)
+                    elif self.path=='/api/map-image':
+                        result=game.upload_map(game.session(self.headers.get('Authorization','')),data)
                     elif self.path=='/api/leave':
                         game.sessions.pop(self.headers.get('Authorization',''),None)
                         result={'ok':True}
@@ -356,6 +414,15 @@ def make_handler(game):
             except (ValueError,TypeError,KeyError) as e: self.respond(400,{'error':str(e)})
 
         def do_GET(self):
+            if urlparse(self.path).path=='/api/map-image':
+                try:
+                    with LOCK:raw,mime=game.map_image(game.session(self.headers.get('Authorization','')))
+                    self.send_response(200);self.send_header('Content-Type',mime)
+                    self.send_header('Cache-Control','no-store');self.send_header('X-Content-Type-Options','nosniff')
+                    self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw)
+                except PermissionError as e:self.respond(403,{'error':str(e)})
+                except ValueError as e:self.respond(404,{'error':str(e)})
+                return
             if urlparse(self.path).path=='/api/state':
                 try:
                     with LOCK: result=game.view(game.session(self.headers.get('Authorization','')))

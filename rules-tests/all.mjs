@@ -6,3 +6,4 @@ import './reforged.test.mjs';
 import './battle-hex.test.mjs';
 import './battle-magic.test.mjs';
 import './monster-rules.test.mjs';
+import './world-map.test.mjs';

@@ -33,6 +33,39 @@ class CampaignTests(unittest.TestCase):
         self.game.db.close();self.game=Game(self.path)
         again=self.game.login(dict(name='Игрок',code=self.gm['code'],key=self.gm['playerKey'],resume=self.player['resume']))
         self.assertEqual(self.game.session(again['token'])['owner'],self.ps['owner'])
+
+    def test_map_locations_preserve_metadata_and_secrets(self):
+        data=dict(action='mapLocation',x=3,y=4,label='Башня',note='Вход на юге',gmNote='Тайный проход',siteType='castle',siteHidden=True)
+        with self.assertRaises(PermissionError):self.game.action(self.ps,data)
+        self.game.action(self.gs,data)
+        self.game.action(self.gs,dict(action='paint',map='world',x=3,y=4,terrain='forest',hidden=False))
+        cell=self.game.view(self.gs)['maps']['world']['3,4']
+        self.assertEqual(cell['label'],'Башня');self.assertEqual(cell['terrain'],'forest')
+        public=self.game.view(self.ps)['maps']['world']['3,4']
+        for k in ('label','note','gmNote','siteType','siteHidden'):self.assertNotIn(k,public)
+        data['siteHidden']=False;self.game.action(self.gs,data)
+        public=self.game.view(self.ps)['maps']['world']['3,4']
+        self.assertEqual(public['note'],'Вход на юге');self.assertNotIn('gmNote',public)
+        self.game.action(self.gs,dict(action='paint',map='world',x=3,y=4,terrain='forest',hidden=True))
+        self.assertNotIn('3,4',self.game.view(self.ps)['maps']['world'])
+        self.assertIn('3,4',self.game.view(self.ps)['mapFog']['world'])
+
+    def test_map_upload_permissions_versions_and_private_storage(self):
+        import base64
+        png='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aC1cAAAAASUVORK5CYII='
+        with self.assertRaises(PermissionError):self.game.upload_map(self.ps,dict(image=png,revision=0))
+        with self.assertRaises(ValueError):self.game.upload_map(self.gs,dict(image='broken',revision=0))
+        result=self.game.upload_map(self.gs,dict(image=png,revision=0))
+        self.assertEqual(result['mapArtwork']['style'],'upload');self.assertNotIn('file',result['mapArtwork'])
+        self.assertEqual(self.game.map_image(self.ps),(base64.b64decode(png),'image/png'))
+        with self.assertRaises(ValueError):self.game.upload_map(self.gs,dict(image=png,revision=0))
+        with self.assertRaises(PermissionError):self.game.action(self.ps,dict(action='mapArtwork',style='terrain',revision=1))
+        self.game.action(self.gs,dict(action='mapArtwork',style='terrain',revision=1))
+        with self.assertRaises(ValueError):self.game.map_image(self.ps)
+        self.game.action(self.gs,dict(action='mapArtwork',style='upload',revision=2))
+        self.assertEqual(self.game.map_image(self.ps)[1],'image/png')
+        self.game.db.close();self.game=Game(self.path)
+        self.assertEqual(self.game.map_image(self.ps)[0],base64.b64decode(png))
     def test_capacity(self):
         for n in range(9):self.game.login(dict(name=str(n),code=self.gm['code'],key=self.gm['playerKey']))
         self.assertEqual(len(self.game.view(self.gs)['members']),11)

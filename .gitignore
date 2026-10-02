@@ -2,3 +2,5 @@ __pycache__/
 *.sqlite
 *.sqlite-*
 *.log
+local-assets/
+map-images/
