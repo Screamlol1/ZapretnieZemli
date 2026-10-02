@@ -12,6 +12,12 @@ from terrain_map import load_reference
 from campaign_rules import state
 
 class ImportTests(unittest.TestCase):
+    def test_journal_labels_match_regional_and_custom_maps(self):
+        from campaign_rules import hex_label
+        regional={'worldLayout':'ravenland'}
+        self.assertEqual(hex_label(dict(x=24,y=11),regional),'Y23')
+        self.assertEqual(hex_label(dict(x=27,y=0),regional),'AB2')
+        self.assertEqual(hex_label(dict(x=2,y=4),{}),'3:5')
     def test_rle_rows_preserve_rgb_bytes_and_reject_truncation(self):
         from tools.import_terrain import unpack_row
         self.assertEqual(unpack_row(bytes([2,139,166,105,254,95]),6),bytes([139,166,105,95,95,95]))

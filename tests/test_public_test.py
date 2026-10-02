@@ -1,4 +1,5 @@
 import json
+import gzip
 import sys
 import tempfile
 import threading
@@ -31,7 +32,49 @@ class PublicTestTests(unittest.TestCase):
         req=Request(self.url+path,data=json.dumps(data).encode() if data is not None else None,headers=headers)
         try:r=urlopen(req,timeout=5)
         except HTTPError as e:r=e
-        with r:return r.status,dict(r.headers),json.load(r) if r.headers['Content-Type'].startswith('application/json') else r.read()
+        with r:
+            raw=r.read()
+            if r.headers.get('Content-Encoding')=='gzip':raw=gzip.decompress(raw)
+            return r.status,dict(r.headers),json.loads(raw) if raw and r.headers.get('Content-Type','').startswith('application/json') else raw
+
+    def test_conditional_state_tracks_presence_changes_and_checks_auth(self):
+        self.serve()
+        _,_,gm=self.request('/api/create',{'name':'GM'})
+        _,headers,original=self.request('/api/state',Authorization=gm['token'])
+        tag=headers['ETag']
+        self.assertEqual(self.request('/api/state',Authorization=gm['token'],**{'If-None-Match':tag})[0],304)
+        self.assertEqual(self.request('/api/state',**{'If-None-Match':tag})[0],403)
+        _,_,player=self.request('/api/join',{'name':'Player','code':gm['code'],'key':gm['playerKey']})
+        status,headers,current=self.request('/api/state',Authorization=gm['token'],**{'If-None-Match':tag})
+        self.assertEqual(status,200);self.assertEqual(len(current['members']),2)
+        self.assertNotEqual(tag,headers['ETag'])
+        self.assertEqual(self.request('/api/state',Authorization=player['token'],**{'If-None-Match':headers['ETag']})[0],200)
+        self.request('/api/action',{'action':'chat','text':'Update'},Authorization=player['token'])
+        self.assertEqual(self.request('/api/state',Authorization=gm['token'],**{'If-None-Match':headers['ETag']})[0],200)
+
+    def test_gzip_preserves_json_and_respects_client_preference(self):
+        self.serve()
+        _,_,gm=self.request('/api/create',{'name':'GM'})
+        self.request('/api/action',{'action':'chat','text':'Long message. '*70},Authorization=gm['token'])
+        _,plain_headers,plain=self.request('/api/state',Authorization=gm['token'])
+        _,compressed_headers,compressed=self.request('/api/state',Authorization=gm['token'],**{'Accept-Encoding':'br, gzip'})
+        self.assertEqual(plain,compressed)
+        self.assertEqual(compressed_headers['Content-Encoding'],'gzip')
+        self.assertLess(int(compressed_headers['Content-Length']),int(plain_headers['Content-Length']))
+        self.assertNotIn('Content-Encoding',self.request('/api/state',Authorization=gm['token'],**{'Accept-Encoding':'gzip;q=0'})[1])
+
+    def test_resume_after_server_session_loss_keeps_identity_and_role(self):
+        self.serve()
+        _,_,gm=self.request('/api/create',{'name':'GM'})
+        _,_,player=self.request('/api/join',{'name':'Player','code':gm['code'],'key':gm['playerKey']})
+        owner=self.request('/api/state',Authorization=player['token'])[2]['me']['owner']
+        self.game.sessions.clear()
+        status,_,resumed=self.request('/api/resume',{'code':gm['code'],'resume':player['resume'],'role':'gm','name':'Spoofed'})
+        self.assertEqual(status,200);self.assertEqual(resumed['role'],'player');self.assertIsNone(resumed['gmKey'])
+        me=self.request('/api/state',Authorization=resumed['token'])[2]['me']
+        self.assertEqual(me,{'owner':owner,'role':'player','name':'Player'})
+        self.assertEqual(self.request('/api/resume',{'code':gm['code'],'resume':'wrong'})[0],403)
+        self.assertEqual(self.request('/api/resume',{'code':gm['code'],'resume':gm['resume']})[2]['role'],'gm')
 
     def test_rate_windows_isolate_addresses_and_operations_and_expire(self):
         limits=RequestLimits({'auth':(2,60),'write':(4,60),'read':(10,60)})

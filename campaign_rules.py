@@ -45,6 +45,13 @@ def coordinate(d,room=None):
 
 def key(p): return f"{p['x']},{p['y']}"
 
+def hex_label(p,room):
+    if dimensions(room)[0]!=41:return f"{p['x']+1}:{p['y']+1}"
+    n=p['x']+1;column=''
+    while n:
+        n,remainder=divmod(n-1,26);column=chr(65+remainder)+column
+    return f"{column}{2*p['y']+p['x']%2+1}"
+
 def adjacent(a,b,room=None):
     if dimensions(room)[0]==41:
         dq=b['x']-a['x']; dr=b['y']-(b['x']-b['x']%2)//2-a['y']+(a['x']-a['x']%2)//2
@@ -142,7 +149,7 @@ def apply(room,s,data):
         if t['pending']: raise ValueError('Сначала разрешите незавершённые события.')
         t.update(party=ids,position=p,season=season,mounted=data.get('mounted') is True,plans={},route=[],gmReady=False,completed={},completionVersions={},blocker='',planVersions={},routeVersion=t['routeVersion']+1,cycleId=secrets.token_hex(8))
         if key(p) not in t['visited']:t['visited'].append(key(p))
-        journal(room,f"Отряд собран. Старт: {p['x']+1}, {p['y']+1}.")
+        journal(room,f"Отряд собран. Старт: {hex_label(p,room)}.")
     elif action=='travelPlan':
         cid=data.get('id'); c=next((c for c in room['characters'] if c['id']==cid),None)
         if cid not in t['party'] or not c or not gm and (c['owner']!=s['owner'] or c['kind']!='pc'): raise PermissionError('Выберите своего героя из отряда.')
@@ -371,7 +378,7 @@ def advance(room,data,defer_clock=False):
                 if c['kind']=='pc' and c['runtime'].get('homeWPsession')!=t['session']:
                     c['runtime']['wp']=min(10,c['runtime'].get('wp',0)+1);c['runtime']['homeWPsession']=t['session'];journal(room,c['name']+': +1 СВ за день дома (один раз за сессию).')
     t['history'].append(dict(day=oldday,quarter=oldquarter,path=completed,rolls=rolls,plans={cid:p.copy() for cid,p in plans.items()}))
-    trail=['{}, {}'.format(*(int(n)+1 for n in k.split(','))) for k in completed]
+    trail=[hex_label(dict(zip(('x','y'),map(int,k.split(',')))),room) for k in completed]
     journal(room,f"День {oldday}, {('утро','день','вечер','ночь')[oldquarter]}: "+(' → '.join(trail) if completed else 'стоянка')+'.')
     nextquarter=(t['quarter']+1)%4
     if not defer_clock:

@@ -21,3 +21,5 @@ header{padding:15px 3%;gap:16px}.sigil{font-size:36px}header h1{font-size:28px}m
 #map-panel>#journey-panel{margin-top:18px;padding:18px 0 0;border:0;border-top:1px solid var(--line);border-radius:0;background:transparent}.journey-cycle{padding:16px;margin:18px 0;background:#162019;border:1px solid var(--line);border-radius:6px}.journey-cycle h3{margin-top:0}.cycle-participants{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.cycle-person{padding:7px 10px;border:1px solid #695d40;border-radius:4px;font-size:13px}.cycle-person.ready{border-color:#72957a;color:#b9d7bf}.quarter-results{font-size:13px}.quarter-results p{padding:8px 0;border-bottom:1px solid var(--line)}
 
 .map-artwork.terrain-details .terrain-darkforest{filter:brightness(.65) drop-shadow(0 0 2px #f1e3bc)}
+
+#save-status:not(:empty){position:fixed;right:16px;bottom:16px;z-index:30;padding:8px 12px;border:1px solid var(--line);border-radius:5px;background:#19281f;color:#e5d6ac;font-size:13px;box-shadow:0 3px 16px #0006;pointer-events:none}

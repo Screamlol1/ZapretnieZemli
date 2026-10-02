@@ -135,6 +135,26 @@ class CampaignTests(unittest.TestCase):
         data=dict(kind='npc',name='Орк',hidden=hidden,kin='orc',profession='fighter',attrs=dict(str=5,agi=3,wit=3,emp=2),skills={k:0 for k in ['melee','might','craft','endure','sleight','shoot','move','stealth','survive','lore','insight','scout','influence','animal','perform','heal']},gear=['broadsword'])
         return self.game.action(self.gs,dict(action='actor',actor=data))['characters'][-1]
 
+    def test_starting_supplies_and_consumed_resources_survive_edits_and_combat(self):
+        pc=self.make_pc()
+        self.assertEqual(pc['runtime']['resources'],dict(food=8,water=6,arrows=0,torches=0))
+        room=self.game.room(self.gs['room'])
+        runtime=room['characters'][0]['runtime']
+        runtime['resources']['food']=0
+        runtime['resources']['water']=6
+        runtime['conditions']=['hungry']
+        runtime['freshFood']=2
+        self.game.save(room)
+        self.game.action(self.ps,dict(action='character',id=pc['id'],sheet=pc['sheet']))
+        npc=self.make_npc()
+        view=self.game.action(self.gs,dict(action='combatCreate',units=[dict(id=pc['id'],team='A'),dict(id=npc['id'],team='B')]))
+        view=self.game.action(self.gs,dict(action='combatAction',revision=view['combatRevision'],command=dict(action='start')))
+        view=self.game.action(self.gs,dict(action='combatManual',revision=view['combatRevision'],actor=pc['id'],target=npc['id'],note='Test spell',attribute='str',damage=1,slow=False,wp=0))
+        view=self.game.action(self.gs,dict(action='combatClose'))
+        current=next(c['runtime'] for c in view['characters'] if c['id']==pc['id'])
+        self.assertEqual(current['resources'],dict(food=0,water=6,arrows=0,torches=0))
+        self.assertEqual(current['conditions'],['hungry']);self.assertEqual(current['freshFood'],2)
+
     def test_owned_tokens_and_assignment(self):
         pc=self.make_pc()
         result=self.game.action(self.gs,dict(action='token',map='world',x=1,y=1,characterId=pc['id']))

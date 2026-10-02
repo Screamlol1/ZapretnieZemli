@@ -3,6 +3,8 @@ import argparse
 import base64
 import binascii
 import json
+import gzip
+import hashlib
 import mimetypes
 import secrets
 import sqlite3
@@ -113,6 +115,13 @@ class Game:
         s['seen'] = time.time()
         return s
 
+    def reconnect(self, data):
+        room=self.room(str(data.get('code','')).upper())
+        identity=room.get('identities',{}).get(str(data.get('resume','')))
+        if not identity:raise PermissionError('Не удалось восстановить вход. Используйте приглашение.')
+        return self.login(dict(code=room['id'],resume=data['resume'],name=identity['name'],
+                               key=room['gmKey'] if identity['role']=='gm' else room['playerKey']))
+
     def view(self, s):
         room = self.room(s['room'])
         journey_state(room)
@@ -182,7 +191,8 @@ class Game:
                 raise ValueError('Не удалось проверить лист: необходим Node.js.')
             if checked.returncode:
                 raise ValueError(checked.stderr.strip()[:300] or 'Некорректный лист.')
-            sheet=json.loads(checked.stdout)
+            validated=json.loads(checked.stdout)
+            sheet=validated['sheet']
             cid = str(data.get('id') or secrets.token_hex(8))
             old = next((c for c in room['characters'] if c['id']==cid),None)
             if old and old['owner']!=s['owner'] and not gm:
@@ -197,7 +207,7 @@ class Game:
                      kind=old['kind'] if old else ('npc' if gm and data.get('npc') else 'pc'),
                      hidden=old.get('hidden',False) if old else bool(gm and data.get('hidden')),sheet=sheet)
             if old and old['kind']!='pc':raise ValueError('ПВ и чудовища изменяются в редакторе Мастера.')
-            c['runtime']=old.get('runtime',{}) if old else dict(current=sheet['attrs'].copy(),wp=0)
+            c['runtime']=old.get('runtime',{}) if old else dict(current=sheet['attrs'].copy(),wp=0,resources=validated['resources'])
             if old and 'visual' in old:c['visual']=old['visual']
             c['runtime']['current']={k:min(c['runtime'].get('current',{}).get(k,v),v) for k,v in sheet['attrs'].items()}
             room['characters'] = [x for x in room['characters'] if x['id']!=cid]+[c]
@@ -341,7 +351,7 @@ class Game:
             room['combatRevision']+=1
             for c in room['characters']:
                 u=next((u for u in room['combat']['units'] if u['id']==c['id']),None)
-                if u:c['runtime']=dict(current=dict(str=u['str'],agi=u['agi'],wit=u['wits'],emp=u['emp']),wp=u['wp'],gearBonus=u['gear'],armor=u['armor'])
+                if u:c['runtime']={**c.get('runtime',{}),**dict(current=dict(str=u['str'],agi=u['agi'],wit=u['wits'],emp=u['emp']),wp=u['wp'],gearBonus=u['gear'],armor=u['armor'])}
         elif action=='combatManual':
             battle=room.get('combat')
             if not battle or battle['phase']!='combat':raise ValueError('Нет активного боя.')
@@ -361,7 +371,7 @@ class Game:
             room['combatRevision']+=1
             for c in room['characters']:
                 u=next((u for u in battle['units'] if u['id']==c['id']),None)
-                if u:c['runtime']=dict(current=dict(str=u['str'],agi=u['agi'],wit=u['wits'],emp=u['emp']),wp=u['wp'],gearBonus=u['gear'],armor=u['armor'])
+                if u:c['runtime']={**c.get('runtime',{}),**dict(current=dict(str=u['str'],agi=u['agi'],wit=u['wits'],emp=u['emp']),wp=u['wp'],gearBonus=u['gear'],armor=u['armor'])}
         elif action=='combatClose':
             room.pop('combat',None);room.pop('combatOwners',None);room['combatRevision']=room.get('combatRevision',0)+1
         elif action=='event':
@@ -435,10 +445,28 @@ def make_handler(game,public_test=False,max_rooms=50,limits=None):
         def setup(self):
             super().setup();self.connection.settimeout(15)
 
-        def respond(self, status, body, retry_after=None):
-            raw=json.dumps(body,ensure_ascii=False).encode()
+        def respond(self, status, body, retry_after=None, conditional=False):
+            raw=json.dumps(body,ensure_ascii=False,separators=(',',':')).encode()
+            # Hash the authenticated view, including presence and permissions.
+            etag='W/"'+hashlib.sha256(raw).hexdigest()+'"' if conditional else None
+            if etag and self.headers.get('If-None-Match')==etag:
+                self.send_response(304);self.send_header('ETag',etag)
+                self.send_header('Cache-Control','private, no-cache');self.send_header('Vary','Authorization, Accept-Encoding')
+                self.end_headers();return
+            compressed=False
+            for encoding in self.headers.get('Accept-Encoding','').split(','):
+                parts=encoding.strip().lower().split(';')
+                if parts[0]!='gzip':continue
+                try:quality=float(next((p.strip()[2:] for p in parts[1:] if p.strip().startswith('q=')),'1'))
+                except ValueError:quality=0
+                if quality>0 and len(raw)>=1024:
+                    raw=gzip.compress(raw,compresslevel=4,mtime=0);compressed=True
+                break
             self.send_response(status); self.send_header('Content-Type','application/json; charset=utf-8')
             self.send_header('Cache-Control','no-store'); self.send_header('Content-Length',str(len(raw)))
+            self.send_header('Vary','Authorization, Accept-Encoding')
+            if etag:self.send_header('ETag',etag)
+            if compressed:self.send_header('Content-Encoding','gzip')
             self.send_header('X-Content-Type-Options','nosniff');self.send_header('Referrer-Policy','no-referrer')
             if retry_after:self.send_header('Retry-After',str(retry_after))
             self.end_headers(); self.wfile.write(raw)
@@ -454,7 +482,7 @@ def make_handler(game,public_test=False,max_rooms=50,limits=None):
             return bool(retry)
 
         def do_POST(self):
-            if self.limited('auth' if self.path in ('/api/create','/api/join') else 'write'):return
+            if self.limited('auth' if self.path in ('/api/create','/api/join','/api/resume') else 'write'):return
             try:
                 length=int(self.headers.get('Content-Length','0'))
                 if not 0<length<=(5500000 if self.path=='/api/map-image' else 150000): raise ValueError('Некорректный размер запроса.')
@@ -470,6 +498,8 @@ def make_handler(game,public_test=False,max_rooms=50,limits=None):
                         if public_test and self.path=='/api/create' and game.db.execute('SELECT COUNT(*) FROM rooms').fetchone()[0]>=max_rooms:
                             raise ValueError('Тестовый сервер достиг лимита кампаний. Обратитесь к владельцу сервера.')
                         result=game.login(data,self.path=='/api/create')
+                    elif self.path=='/api/resume':
+                        result=game.reconnect(data)
                     elif self.path=='/api/action':
                         result=game.action(game.session(self.headers.get('Authorization','')),data)
                     elif self.path=='/api/map-image':
@@ -499,7 +529,7 @@ def make_handler(game,public_test=False,max_rooms=50,limits=None):
             if urlparse(self.path).path=='/api/state':
                 try:
                     with LOCK: result=game.view(game.session(self.headers.get('Authorization','')))
-                    self.respond(200,result)
+                    self.respond(200,result,conditional=True)
                 except PermissionError as e: self.respond(403,{'error':str(e)})
                 return
             target=(ROOT/'public'/urlparse(self.path).path.lstrip('/')).resolve()
