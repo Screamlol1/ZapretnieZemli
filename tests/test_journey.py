@@ -9,7 +9,7 @@ from campaign_rules import state, adjacent, MATERIALS
 
 class JourneyTests(unittest.TestCase):
     def setUp(self):
-        self.tmp=tempfile.TemporaryDirectory();self.game=Game(Path(self.tmp.name)/'test.sqlite')
+        self.tmp=tempfile.TemporaryDirectory();self.game=Game(Path(self.tmp.name)/'test.sqlite',reference_root=Path(self.tmp.name)/'local-assets')
         self.login=self.game.login({'name':'Мастер'},True);self.gm=self.game.session(self.login['token'])
         p=self.game.login({'name':'Игрок','code':self.login['code'],'key':self.login['playerKey']});self.player=self.game.session(p['token'])
         room=self.game.room(self.gm['room']);room['worldLayout']='legacy';state(room)
@@ -175,7 +175,7 @@ class JourneyTests(unittest.TestCase):
         self.assertEqual(self.game.view(self.gm)['characters'][0]['runtime']['wp'],1)
         self.act('travelSession');self.plan('sleep','none');self.act('travelAdvance',path=[])
         self.assertEqual(self.game.view(self.gm)['characters'][0]['runtime']['wp'],2)
-        new=Game(Path(self.tmp.name)/'test.sqlite')
+        new=Game(Path(self.tmp.name)/'test.sqlite',reference_root=Path(self.tmp.name)/'local-assets')
         try:self.assertEqual(new.room(self.gm['room'])['journey']['day'],2)
         finally:new.db.close()
     def test_resting_in_stronghold_has_no_wilderness_mishap(self):

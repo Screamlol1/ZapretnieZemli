@@ -1,12 +1,13 @@
 """Journey and stronghold state. PH chapters 7–8; complex consequences stay with GM."""
 import secrets
+from terrain_map import cell_at
 
 TERRAINS = {
     'plain': ('Равнина', 2, -1, 1), 'forest': ('Лес', 2, 1, 1),
     'darkforest': ('Тёмный лес', 1, -1, 0), 'hills': ('Холмы', 2, 0, 0),
-    'mountain': ('Горы', 1, -2, -1), 'highmountain': ('Высокие горы', 0, 0, 0),
-    'water': ('Вода', 0, 0, 0), 'marsh': ('Болото', 0, 1, -1),
-    'rough': ('Топь / трудная местность', 1, -1, 0), 'ruin': ('Руины', 1, -2, -1),
+    'mountain': ('Горы', 1, -2, -1), 'highmountain': ('Высокие горы', 0, None, None),
+    'water': ('Озеро / река', 0, None, 0), 'marsh': ('Болото', 0, 1, -1),
+    'rough': ('Топь', 1, -1, 0), 'ruin': ('Руины', 1, -2, -1),
     'road': ('Дорога', 2, -1, 1), 'wall': ('Преграда', 0, 0, 0)}
 JOBS = ('hike', 'watch', 'camp', 'rest', 'sleep', 'forageFood', 'forageWater', 'hunt', 'fish', 'explore', 'work')
 JOB_NAMES={'forageFood':'сбор пищи','forageWater':'поиск воды','fish':'рыбалка','camp':'лагерь','hunt':'охота'}
@@ -170,7 +171,7 @@ def apply(room,s,data):
     elif action=='travelEvent':
         location=data.get('location','journey')
         if location not in ('journey','stronghold'):raise ValueError('Неизвестный генератор.')
-        terrain=room['maps']['world'].get(key(t['position']),{}).get('terrain','plain')
+        terrain=cell_at(room,key(t['position'])).get('terrain','plain')
         category='stronghold' if location=='stronghold' else terrain
         hook=secrets.choice(HOOKS.get(category,HOOKS['forest' if terrain=='darkforest' else 'plain']))
         item=pending(room,'Авторская зацепка','Авторский генератор; не официальная таблица.')
@@ -200,19 +201,23 @@ def advance(room,data):
     if len(lead)>1 or len(watch)>1 or len(campers)>1 or hiking and len(lead)!=1:raise ValueError('Нужен один проводник для перехода; дозорный и устроитель лагеря — не более одного.')
     path=data.get('path',[])
     if not isinstance(path,list) or len(path)>3 or not hiking and path or hiking and not path:raise ValueError('Укажите маршрут из 1–3 соседних гексов для перехода.')
+    if room.get('worldLayout')=='ravenland' and not hiking and not cell_at(room,key(t['position'])).get('terrain'):raise ValueError('В этом гексе местность неизвестна. Мастер должен указать её перед разрешением четверти.')
     position=t['position']; limit=3 if t.get('mounted') else 2; seen={key(position)}
     for p in path:
         p=coordinate(p,room)
         if not adjacent(position,p,room) or key(p) in seen:raise ValueError('Маршрут должен идти через разные соседние гексы.')
-        if room.get('worldLayout')=='ravenland' and not room['maps']['world'].get(key(p),{}).get('terrain'):raise ValueError('Сначала укажите местность гекса по легенде карты.')
-        seen.add(key(p)); terrain=room['maps']['world'].get(key(p),{}).get('terrain','plain'); speed=TERRAINS[terrain][1]
+        if room.get('worldLayout')=='ravenland' and not cell_at(room,key(p)).get('terrain'):raise ValueError('Сначала укажите местность гекса по легенде карты.')
+        seen.add(key(p)); terrain=cell_at(room,key(p)).get('terrain','plain'); speed=TERRAINS[terrain][1]
         if not speed:raise ValueError('Путь перекрыт или требует водного транспорта. Переправу разрешает Мастер отдельно.')
         limit=min(limit,1 if speed==1 else limit);position=p
     if len(path)>limit:raise ValueError('За четверть дня доступны 2 открытых гекса пешком, 3 верхом или 1 трудный гекс.')
     if sum(plans[c['id']]['job']=='fish' for c in party):
         water=[t['position']]+[dict(x=x,y=y) for x in range(dimensions(room)[0]) for y in range(dimensions(room)[1]) if adjacent(t['position'],dict(x=x,y=y),room)]
-        if not any(room['maps']['world'].get(key(p),{}).get('terrain')=='water' for p in water):raise ValueError('Рыбалка требует соседнего водоёма.')
+        if not any(cell_at(room,key(p)).get('terrain')=='water' for p in water):raise ValueError('Рыбалка требует соседнего водоёма.')
     for c in party:
+        terrain=cell_at(room,key(t['position'])).get('terrain','plain');job=plans[c['id']]['job']
+        if job in ('forageFood','forageWater') and TERRAINS[terrain][2] is None:raise ValueError('В этой местности сбор по таблице местности недоступен.')
+        if job=='hunt' and TERRAINS[terrain][3] is None:raise ValueError('В этой местности охота по таблице местности недоступна.')
         if plans[c['id']]['job'] in ('hunt','fish') and not plans[c['id']]['equipped']:raise ValueError('Мастер должен подтвердить снаряжение для охоты/рыбалки.')
     rolls=[]; oldday=t['day']; oldquarter=t['quarter']; completed=[]
     sheltered=any(h['position']==t['position'] for h in room.get('strongholds',[])) and all(plans[c['id']]['job'] in ('rest','sleep','work','watch','camp') for c in party)
@@ -250,7 +255,7 @@ def advance(room,data):
             if new and not rolled(lead[0],'survive',-2 if dark else 0)['hits']:
                 pending(room,'Неприятность проводника','Книга игрока, стр. 148–149; последствия и дальнейшее перемещение решает Мастер.',10*dice(1)[0]+dice(1)[0]);break
     elif not path and not t['pending']:
-        terrain=room['maps']['world'].get(key(t['position']),{}).get('terrain','plain'); season={'spring':-1,'summer':0,'autumn':1,'winter':-2}[t['season']]
+        terrain=cell_at(room,key(t['position'])).get('terrain','plain'); season={'spring':-1,'summer':0,'autumn':1,'winter':-2}[t['season']]
         for c in party:
             p=plans[c['id']];job=p['job']
             if job=='camp' and sheltered:
@@ -276,7 +281,7 @@ def advance(room,data):
                 journal(room,c['name']+': '+('сон' if job=='sleep' else 'отдых')+'. Восстановление подтверждает Мастер с учётом состояний и прерываний.')
                 if job=='sleep':c['runtime']['sleptDay']=t['day']
     if hiking or not sheltered and t['encounterDay']!=t['day']:
-        terrain=room['maps']['world'].get(key(t['position']),{}).get('terrain','plain')
+        terrain=cell_at(room,key(t['position'])).get('terrain','plain')
         item=pending(room,'Проверка случайной встречи','Руководство ведущего, глава 7. Местность: '+TERRAINS[terrain][0]+'. Проверка раз в четверть дня в пути, раз в день на стоянке.',10*dice(1)[0]+dice(1)[0])
         if watch:item['scouting']=rolled(watch[0],'scout')
         item['note']='Дозорный: '+(watch[0]['name'] if watch else ('проводник, если путешествует один' if len(party)==1 else 'не назначен'))+'. Предварительный дозор применим к угрозе; для активной засады требуется встречная проверка.'

@@ -14,25 +14,32 @@ from pathlib import Path
 from urllib.parse import urlparse
 from campaign_rules import apply as campaign_action, state as journey_state, coordinate
 
+from terrain_map import load_reference, effective_world
+
 ROOT = Path(__file__).parent
 LOCK = threading.RLock()
 
 class Game:
-    def __init__(self, database):
+    def __init__(self, database, reference_root=None):
+        self.reference_root=Path(reference_root) if reference_root is not None else ROOT/'local-assets'
+        self.reference_terrain=load_reference(self.reference_root)
         self.image_root = Path(database).parent/'map-images'
         self.db = sqlite3.connect(database, check_same_thread=False)
         self.db.execute('CREATE TABLE IF NOT EXISTS rooms (id TEXT PRIMARY KEY, data TEXT)')
         self.sessions = {}
 
     def save(self, room):
-        self.db.execute('INSERT OR REPLACE INTO rooms VALUES (?,?)', (room['id'], json.dumps(room)))
+        self.db.execute('INSERT OR REPLACE INTO rooms VALUES (?,?)', (room['id'], json.dumps({k:v for k,v in room.items() if not k.startswith('_')})))
         self.db.commit()
 
     def room(self, code):
         row = self.db.execute('SELECT data FROM rooms WHERE id=?', (code,)).fetchone()
         if not row:
             raise ValueError('Кампания не найдена.')
-        return json.loads(row[0])
+        room=json.loads(row[0])
+        art=room.get('mapArtwork',{})
+        if room.get('worldLayout')=='ravenland' and art.get('style','reference')!='upload':room['_worldBase']=self.reference_terrain
+        return room
 
     def login(self, data, create=False):
         name = str(data.get('name', '')).strip()[:60]
@@ -90,6 +97,9 @@ class Game:
     def view(self, s):
         room = self.room(s['room'])
         journey_state(room)
+        room['maps']['world']=effective_world(room)
+        room['mapTerrain']={'referenceCount':len(room.get('_worldBase',{}))}
+        room.pop('_worldBase',None)
         identities=room.get('identities',{})
         room.pop('gmKey'); room.pop('playerKey')
         room.pop('identities',None)
@@ -98,7 +108,7 @@ class Game:
         room.pop('combatOwners',None)
         artwork=room.get('mapArtwork',{})
         room['mapArtwork']={k:v for k,v in artwork.items() if k in ('style','revision')}
-        room['mapArtwork']['referenceAvailable']=(ROOT/'local-assets/forbidden-lands.jpg').is_file()
+        room['mapArtwork']['referenceAvailable']=(self.reference_root/'forbidden-lands.jpg').is_file()
         room['mapArtwork']['uploadAvailable']=bool(artwork.get('file'))
         room['mapFog']={kind:[k for k,v in cells.items() if v.get('hidden')] for kind,cells in room['maps'].items()}
         room['characters'] = [c if s['role']=='gm' or c['owner']==s['owner'] and c['kind']=='pc' else
@@ -226,7 +236,7 @@ class Game:
             if data.get('revision')!=artwork['revision']:raise ValueError('Карта изменена другим действием. Повторите выбор.')
             style=data.get('style')
             if style not in ('terrain','reference','upload'):raise ValueError('Неизвестный фон карты.')
-            if style=='reference' and not (ROOT/'local-assets/forbidden-lands.jpg').is_file():raise ValueError('Карта Запретных Земель не установлена на сервере.')
+            if style=='reference' and not (self.reference_root/'forbidden-lands.jpg').is_file():raise ValueError('Карта Запретных Земель не установлена на сервере.')
             if style=='upload' and not artwork.get('file'):raise ValueError('Сначала загрузите карту кампании.')
             artwork.update(style=style,revision=artwork['revision']+1)
         elif action=='mapLocation':
@@ -234,7 +244,7 @@ class Game:
             coordinate(data,room)
             site=data.get('siteType')
             if site not in ('landmark','settlement','ruin','castle','cave','none'):raise ValueError('Неизвестный тип места.')
-            cell=room['maps']['world'].setdefault(f'{x},{y}',dict(terrain='plain',hidden=False))
+            cell=room['maps']['world'].setdefault(f'{x},{y}',dict(hidden=False))
             cell.update(label=str(data.get('label','')).strip()[:80],note=str(data.get('note',''))[:1500],gmNote=str(data.get('gmNote',''))[:1500],siteType=site,siteHidden=data.get('siteHidden') is True)
         elif action=='paint':
             kind = data.get('map')
@@ -375,7 +385,7 @@ class Game:
             filename=art.get('file','')
             if not filename.startswith(s['room']+'-') or Path(filename).name!=filename:raise ValueError('Карта недоступна.')
             path=self.image_root/filename
-        elif art.get('style','reference' if (ROOT/'local-assets/forbidden-lands.jpg').is_file() else 'terrain')=='reference':path=ROOT/'local-assets/forbidden-lands.jpg'
+        elif art.get('style','reference' if (self.reference_root/'forbidden-lands.jpg').is_file() else 'terrain')=='reference':path=self.reference_root/'forbidden-lands.jpg'
         else:raise ValueError('Фон карты не выбран.')
         if not path.is_file():raise ValueError('Изображение карты недоступно.')
         return path.read_bytes(), 'image/png' if path.suffix=='.png' else 'image/jpeg'

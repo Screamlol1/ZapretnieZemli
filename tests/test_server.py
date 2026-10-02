@@ -14,7 +14,7 @@ class CampaignTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory()
         self.path=Path(self.tmp.name)/'test.sqlite'
-        self.game=Game(self.path)
+        self.game=Game(self.path,reference_root=Path(self.tmp.name)/'local-assets')
         self.gm=self.game.login({'name':'Мастер'},True)
         room=self.game.room(self.gm['code']);room['worldLayout']='legacy';self.game.save(room)
         self.player=self.game.login({'name':'Игрок','code':self.gm['code'],'key':self.gm['playerKey']})
@@ -49,7 +49,7 @@ class CampaignTests(unittest.TestCase):
         with self.assertRaises(ValueError):self.game.action(self.gs,dict(action='mapLocation',x=30,y=20))
 
     def test_reconnect_after_restart(self):
-        self.game.db.close();self.game=Game(self.path)
+        self.game.db.close();self.game=Game(self.path,reference_root=Path(self.tmp.name)/'local-assets')
         again=self.game.login(dict(name='Игрок',code=self.gm['code'],key=self.gm['playerKey'],resume=self.player['resume']))
         self.assertEqual(self.game.session(again['token'])['owner'],self.ps['owner'])
 
@@ -83,7 +83,7 @@ class CampaignTests(unittest.TestCase):
         with self.assertRaises(ValueError):self.game.map_image(self.ps)
         self.game.action(self.gs,dict(action='mapArtwork',style='upload',revision=2))
         self.assertEqual(self.game.map_image(self.ps)[1],'image/png')
-        self.game.db.close();self.game=Game(self.path)
+        self.game.db.close();self.game=Game(self.path,reference_root=Path(self.tmp.name)/'local-assets')
         self.assertEqual(self.game.map_image(self.ps)[0],base64.b64decode(png))
     def test_capacity(self):
         for n in range(9):self.game.login(dict(name=str(n),code=self.gm['code'],key=self.gm['playerKey']))
