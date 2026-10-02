@@ -12,7 +12,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
-from campaign_rules import apply as campaign_action, state as journey_state
+from campaign_rules import apply as campaign_action, state as journey_state, coordinate
 
 ROOT = Path(__file__).parent
 LOCK = threading.RLock()
@@ -43,7 +43,7 @@ class Game:
             key = secrets.token_urlsafe(24)
             room = dict(id=code, title=str(data.get('title') or 'Новая экспедиция')[:100],
                         gmKey=key, playerKey=secrets.token_urlsafe(18), revision=0,
-                        characters=[], maps={'world': {}, 'battle': {}}, tokens=[], log=[], identities={})
+                        worldLayout='ravenland', characters=[], maps={'world': {}, 'battle': {}}, tokens=[], log=[], identities={})
             self.save(room)
             role = 'gm'
         else:
@@ -98,7 +98,7 @@ class Game:
         room.pop('combatOwners',None)
         artwork=room.get('mapArtwork',{})
         room['mapArtwork']={k:v for k,v in artwork.items() if k in ('style','revision')}
-        room['mapArtwork']['referenceAvailable']=(ROOT/'local-assets/world-map.jpg').is_file()
+        room['mapArtwork']['referenceAvailable']=(ROOT/'local-assets/forbidden-lands.jpg').is_file()
         room['mapArtwork']['uploadAvailable']=bool(artwork.get('file'))
         room['mapFog']={kind:[k for k,v in cells.items() if v.get('hidden')] for kind,cells in room['maps'].items()}
         room['characters'] = [c if s['role']=='gm' or c['owner']==s['owner'] and c['kind']=='pc' else
@@ -126,7 +126,7 @@ class Game:
         room = self.room(s['room'])
         action = data.get('action')
         gm = s['role']=='gm'
-        if action in ('paint','mapLocation','mapArtwork','event','deleteCharacter','assignCharacter','deleteToken','combatCreate','combatClose','actor','combatManual') and not gm:
+        if action in ('paint','mapLocation','mapArtwork','worldLayout','event','deleteCharacter','assignCharacter','deleteToken','combatCreate','combatClose','actor','combatManual') and not gm:
             raise PermissionError('Действие доступно только Мастеру.')
         if isinstance(action,str) and (action.startswith('travel') or action.startswith('hold')):
             campaign_action(room,s,data)
@@ -213,17 +213,25 @@ class Game:
             if room.get('combat',{}).get('phase')=='combat' and data.get('id') in room.get('combatOwners',{}):raise ValueError('Участник активного боя не удаляется.')
             room['characters'] = [c for c in room['characters'] if c['id']!=data.get('id')]
             room['tokens']=[t for t in room['tokens'] if t.get('characterId')!=data.get('id')]
+        elif action=='worldLayout':
+            layout=data.get('layout')
+            if layout not in ('legacy','ravenland'):raise ValueError('Неизвестная сетка.')
+            if layout!=room.get('worldLayout','legacy'):
+                if room['maps']['world'] or any(t['map']=='world' for t in room['tokens']) or room.get('strongholds') or journey_state(room)['party']:raise ValueError('Создайте новую кампанию: в этой уже размещены места, жетоны или отряд. Смена сетки изменила бы их координаты.')
+                room['worldLayout']=layout
+                room['journey']['position']={'x':0,'y':0};room['journey']['visited']=[]
+                room['journey']['revision']+=1
         elif action=='mapArtwork':
             artwork=room.setdefault('mapArtwork',{'revision':0})
             if data.get('revision')!=artwork['revision']:raise ValueError('Карта изменена другим действием. Повторите выбор.')
             style=data.get('style')
             if style not in ('terrain','reference','upload'):raise ValueError('Неизвестный фон карты.')
-            if style=='reference' and not (ROOT/'local-assets/world-map.jpg').is_file():raise ValueError('Карта мира не установлена на сервере.')
+            if style=='reference' and not (ROOT/'local-assets/forbidden-lands.jpg').is_file():raise ValueError('Карта Запретных Земель не установлена на сервере.')
             if style=='upload' and not artwork.get('file'):raise ValueError('Сначала загрузите карту кампании.')
             artwork.update(style=style,revision=artwork['revision']+1)
         elif action=='mapLocation':
             x,y=data.get('x'),data.get('y')
-            if type(x)!=int or type(y)!=int or not 0<=x<24 or not 0<=y<16:raise ValueError('Гекс вне карты.')
+            coordinate(data,room)
             site=data.get('siteType')
             if site not in ('landmark','settlement','ruin','castle','cave','none'):raise ValueError('Неизвестный тип места.')
             cell=room['maps']['world'].setdefault(f'{x},{y}',dict(terrain='plain',hidden=False))
@@ -231,8 +239,9 @@ class Game:
         elif action=='paint':
             kind = data.get('map')
             x,y = data.get('x'),data.get('y')
-            if kind not in room['maps'] or type(x)!=int or type(y)!=int or not 0<=x<24 or not 0<=y<16:
+            if kind not in room['maps']:
                 raise ValueError('Клетка вне карты.')
+            coordinate(data,room if kind=='world' else None)
             terrain = data.get('terrain')
             if terrain not in ('plain','forest','darkforest','hills','highmountain','marsh','water','mountain','wall','rough','road','ruin'):
                 raise ValueError('Неизвестная местность.')
@@ -240,8 +249,9 @@ class Game:
             cell.update(terrain=terrain,hidden=data.get('hidden') is True)
         elif action=='token':
             x,y = data.get('x'),data.get('y')
-            if type(x)!=int or type(y)!=int or not 0<=x<24 or not 0<=y<16 or data.get('map') not in room['maps']:
+            if data.get('map') not in room['maps']:
                 raise ValueError('Клетка вне карты.')
+            coordinate(data,room if data.get('map')=='world' else None)
             tid = str(data.get('id') or secrets.token_hex(8))
             old=next((t for t in room['tokens'] if t['id']==tid),None)
             if not gm:
@@ -365,7 +375,7 @@ class Game:
             filename=art.get('file','')
             if not filename.startswith(s['room']+'-') or Path(filename).name!=filename:raise ValueError('Карта недоступна.')
             path=self.image_root/filename
-        elif art.get('style','reference' if (ROOT/'local-assets/world-map.jpg').is_file() else 'terrain')=='reference':path=ROOT/'local-assets/world-map.jpg'
+        elif art.get('style','reference' if (ROOT/'local-assets/forbidden-lands.jpg').is_file() else 'terrain')=='reference':path=ROOT/'local-assets/forbidden-lands.jpg'
         else:raise ValueError('Фон карты не выбран.')
         if not path.is_file():raise ValueError('Изображение карты недоступно.')
         return path.read_bytes(), 'image/png' if path.suffix=='.png' else 'image/jpeg'

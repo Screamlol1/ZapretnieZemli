@@ -31,13 +31,22 @@ def integer(v, low, high, message='Некорректное число.'):
     if type(v)!=int or not low<=v<=high: raise ValueError(message)
     return v
 
-def coordinate(d):
+def dimensions(room=None):
+    return (41,25) if room and room.get('worldLayout')=='ravenland' else (24,16)
+
+def coordinate(d,room=None):
     if not isinstance(d,dict):raise ValueError('Нужны координаты гекса.')
-    return {'x':integer(d.get('x'),0,23), 'y':integer(d.get('y'),0,15)}
+    cols,rows=dimensions(room)
+    p={'x':integer(d.get('x'),0,cols-1), 'y':integer(d.get('y'),0,rows-1)}
+    if cols==41 and p['x']%2 and p['y']==24:raise ValueError('Гекс вне карты.')
+    return p
 
 def key(p): return f"{p['x']},{p['y']}"
 
-def adjacent(a,b):
+def adjacent(a,b,room=None):
+    if dimensions(room)[0]==41:
+        dq=b['x']-a['x']; dr=b['y']-(b['x']-b['x']%2)//2-a['y']+(a['x']-a['x']%2)//2
+        return max(abs(dq),abs(dr),abs(dq+dr))==1
     aq=a['x']-(a['y']-a['y']%2)//2; bq=b['x']-(b['y']-b['y']%2)//2
     dq=bq-aq; dr=b['y']-a['y']
     return max(abs(dq),abs(dr),abs(dq+dr))==1
@@ -82,7 +91,7 @@ def apply(room,s,data):
     if action not in ('travelPlan','travelConsume') and not gm: raise PermissionError('Действие доступно только Мастеру.')
     if room.get('combat',{}).get('phase')=='combat': raise ValueError('Сначала завершите активный бой.')
     if action=='travelSetup':
-        ids=data.get('party'); p=coordinate(data); season=data.get('season')
+        ids=data.get('party'); p=coordinate(data,room); season=data.get('season')
         if not isinstance(ids,list) or not 1<=len(ids)<=11 or len(set(ids))!=len(ids): raise ValueError('Выберите 1–11 разных участников.')
         if any(not any(c['id']==cid and c['kind']!='monster' and not c.get('hidden') for c in room['characters']) for cid in ids): raise ValueError('Нужны открытые герои или ПВ.')
         if season not in ('spring','summer','autumn','winter'): raise ValueError('Неизвестное время года.')
@@ -155,7 +164,7 @@ def apply(room,s,data):
         item=next((p for p in t['pending'] if p['id']==data.get('id')),None)
         note=str(data.get('note','')).strip()[:1000]
         if not item or not note:raise ValueError('Укажите решение Мастера.')
-        if data.get('position') is not None:t['position']=coordinate(data['position'])
+        if data.get('position') is not None:t['position']=coordinate(data['position'],room)
         if data.get('reveal') is True:journal(room,item['category']+': '+note)
         t['pending'].remove(item);t['history'].append(dict(day=t['day'],quarter=t['quarter'],resolution=note,private=data.get('reveal') is not True))
     elif action=='travelEvent':
@@ -193,14 +202,15 @@ def advance(room,data):
     if not isinstance(path,list) or len(path)>3 or not hiking and path or hiking and not path:raise ValueError('Укажите маршрут из 1–3 соседних гексов для перехода.')
     position=t['position']; limit=3 if t.get('mounted') else 2; seen={key(position)}
     for p in path:
-        p=coordinate(p)
-        if not adjacent(position,p) or key(p) in seen:raise ValueError('Маршрут должен идти через разные соседние гексы.')
+        p=coordinate(p,room)
+        if not adjacent(position,p,room) or key(p) in seen:raise ValueError('Маршрут должен идти через разные соседние гексы.')
+        if room.get('worldLayout')=='ravenland' and not room['maps']['world'].get(key(p),{}).get('terrain'):raise ValueError('Сначала укажите местность гекса по легенде карты.')
         seen.add(key(p)); terrain=room['maps']['world'].get(key(p),{}).get('terrain','plain'); speed=TERRAINS[terrain][1]
         if not speed:raise ValueError('Путь перекрыт или требует водного транспорта. Переправу разрешает Мастер отдельно.')
         limit=min(limit,1 if speed==1 else limit);position=p
     if len(path)>limit:raise ValueError('За четверть дня доступны 2 открытых гекса пешком, 3 верхом или 1 трудный гекс.')
     if sum(plans[c['id']]['job']=='fish' for c in party):
-        water=[t['position']]+[dict(x=x,y=y) for x in range(24) for y in range(16) if adjacent(t['position'],dict(x=x,y=y))]
+        water=[t['position']]+[dict(x=x,y=y) for x in range(dimensions(room)[0]) for y in range(dimensions(room)[1]) if adjacent(t['position'],dict(x=x,y=y),room)]
         if not any(room['maps']['world'].get(key(p),{}).get('terrain')=='water' for p in water):raise ValueError('Рыбалка требует соседнего водоёма.')
     for c in party:
         if plans[c['id']]['job'] in ('hunt','fish') and not plans[c['id']]['equipped']:raise ValueError('Мастер должен подтвердить снаряжение для охоты/рыбалки.')
@@ -233,7 +243,7 @@ def advance(room,data):
                 if not plans[c['id']]['darkvision'] and not rolled(c,'scout',0,0)['hits']:
                     c['runtime']['current']['str']=max(0,c['runtime']['current']['str']-1)
         for p in path:
-            t['position']=coordinate(p);completed.append(key(p))
+            t['position']=coordinate(p,room);completed.append(key(p))
             if key(p) in room['maps']['world']:room['maps']['world'][key(p)]['hidden']=False
             new=key(p) not in t['visited']
             if new:t['visited'].append(key(p))
@@ -299,7 +309,7 @@ def stronghold(room,data):
         if len(holds)>=10:raise ValueError('Предел: десять цитаделей.')
         name=str(data.get('name','')).strip()[:80]
         if not name or data.get('confirmed') is not True:raise ValueError('Мастер должен подтвердить очищенное и обустроенное место (Ремесло, минимум две четверти дня).')
-        p=coordinate(data)
+        p=coordinate(data,room)
         holds.append(dict(id=secrets.token_hex(8),name=name,position=p,stock={k:0 for k in MATERIALS},functions=[],projects=[],hirelings=[],notes='',reviewDay=t['day'],homeQuarters=0))
         journal(room,'Основана цитадель «'+name+'».');return
     h=next((h for h in holds if h['id']==data.get('hold')),None)

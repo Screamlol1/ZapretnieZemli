@@ -12,7 +12,7 @@ class JourneyTests(unittest.TestCase):
         self.tmp=tempfile.TemporaryDirectory();self.game=Game(Path(self.tmp.name)/'test.sqlite')
         self.login=self.game.login({'name':'Мастер'},True);self.gm=self.game.session(self.login['token'])
         p=self.game.login({'name':'Игрок','code':self.login['code'],'key':self.login['playerKey']});self.player=self.game.session(p['token'])
-        room=self.game.room(self.gm['room']);state(room)
+        room=self.game.room(self.gm['room']);room['worldLayout']='legacy';state(room)
         room['characters']=[dict(id='hero',name='Герой',kind='pc',owner=self.player['owner'],hidden=False,sheet=dict(kin='human',attrs=dict(str=4,agi=3,wit=3,emp=2),skills=dict(survive=2,scout=1,endure=2,craft=1)),runtime=dict(current=dict(str=4,agi=3,wit=3,emp=2),wp=0,resources=dict(food=6,water=8)))]
         self.game.save(room)
         self.act('travelSetup',party=['hero'],x=0,y=0,season='spring')
@@ -25,6 +25,18 @@ class JourneyTests(unittest.TestCase):
         for p in list(self.game.view(self.gm)['journey']['pending']):self.act('travelResolve',id=p['id'],note='Решено.',reveal=False)
     def stock(self,**kw):return {k:kw.get(k,0) for k in MATERIALS}
     def hold(self):return self.act('holdCreate',name='Дом',x=0,y=0,confirmed=True)['strongholds'][0]
+    @patch('campaign_rules.dice',side_effect=lambda n,sides=6:[6]*n)
+    def test_regional_journey_requires_marked_terrain_and_accepts_column_neighbors(self,_):
+        room=self.game.room(self.gm['room']);room['worldLayout']='ravenland';self.game.save(room)
+        self.plan()
+        with self.assertRaisesRegex(ValueError,'Сначала'):self.act('travelAdvance',path=[dict(x=1,y=0)])
+        self.assertEqual(self.game.view(self.gm)['journey']['position'],dict(x=0,y=0))
+        self.game.action(self.gm,dict(action='paint',map='world',x=1,y=0,terrain='plain',hidden=False))
+        self.game.action(self.gm,dict(action='paint',map='world',x=1,y=1,terrain='plain',hidden=False))
+        v=self.act('travelAdvance',path=[dict(x=1,y=0),dict(x=1,y=1)])
+        self.assertEqual(v['journey']['position'],dict(x=1,y=1))
+        self.assertIn('1,1',v['journey']['visited'])
+
     def test_hex_adjacency(self):
         p=dict(x=3,y=1)
         self.assertTrue(adjacent(p,dict(x=4,y=0)));self.assertTrue(adjacent(p,dict(x=4,y=2)))

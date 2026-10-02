@@ -16,6 +16,7 @@ class CampaignTests(unittest.TestCase):
         self.path=Path(self.tmp.name)/'test.sqlite'
         self.game=Game(self.path)
         self.gm=self.game.login({'name':'Мастер'},True)
+        room=self.game.room(self.gm['code']);room['worldLayout']='legacy';self.game.save(room)
         self.player=self.game.login({'name':'Игрок','code':self.gm['code'],'key':self.gm['playerKey']})
         self.gs=self.game.session(self.gm['token']); self.ps=self.game.session(self.player['token'])
     def tearDown(self):
@@ -29,6 +30,24 @@ class CampaignTests(unittest.TestCase):
         player=self.game.view(self.ps)
         self.assertNotIn('2,3',player['maps']['battle']);self.assertEqual(player['tokens'],[])
         for key in ('gmKey','playerKey','identities'):self.assertNotIn(key,player)
+    def test_regional_grid_permissions_boundaries_and_safe_layout_change(self):
+        from campaign_rules import adjacent, coordinate
+        with self.assertRaises(PermissionError):self.game.action(self.ps,dict(action='worldLayout',layout='ravenland'))
+        self.game.action(self.gs,dict(action='worldLayout',layout='ravenland'))
+        room=self.game.room(self.gs['room'])
+        self.assertTrue(adjacent(dict(x=0,y=0),dict(x=1,y=0),room))
+        self.assertTrue(adjacent(dict(x=0,y=1),dict(x=1,y=0),room))
+        self.assertFalse(adjacent(dict(x=0,y=0),dict(x=2,y=0),room))
+        self.game.action(self.gs,dict(action='paint',map='world',x=40,y=24,terrain='forest',hidden=False))
+        with self.assertRaises(ValueError):coordinate(dict(x=39,y=24),room)
+        with self.assertRaises(ValueError):self.game.action(self.gs,dict(action='token',map='world',x=41,y=0))
+        with self.assertRaises(ValueError):self.game.action(self.gs,dict(action='paint',map='battle',x=24,y=0,terrain='forest'))
+        with self.assertRaises(ValueError):self.game.action(self.gs,dict(action='worldLayout',layout='legacy'))
+        self.assertIn('40,24',self.game.view(self.gs)['maps']['world'])
+        # Old rooms without a layout stay on their original coordinate system.
+        room.pop('worldLayout');self.game.save(room)
+        with self.assertRaises(ValueError):self.game.action(self.gs,dict(action='mapLocation',x=30,y=20))
+
     def test_reconnect_after_restart(self):
         self.game.db.close();self.game=Game(self.path)
         again=self.game.login(dict(name='Игрок',code=self.gm['code'],key=self.gm['playerKey'],resume=self.player['resume']))

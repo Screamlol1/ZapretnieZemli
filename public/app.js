@@ -1,3 +1,4 @@
+import {COLS,ROWS} from './world-hex.js';
 import {validateImport} from './tools/rules.js';
 import {combatUI} from './campaign-combat.js';
 import {visualEditor,paintSprites} from './appearance.js';
@@ -14,7 +15,7 @@ function modeTools(){const mode=$('mode').value,gm=state?.me.role==='gm';$('pain
 document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));
 $('mode').onchange=modeTools;$('map-advance').onclick=()=>journey.advance();$('map-route-clear').onclick=()=>journey.clear();$('map-route-undo').onclick=()=>journey.undo();
 $('map-pending').onclick=()=>{setView('travel');document.querySelector('.journey-pending')?.scrollIntoView({behavior:'smooth',block:'start'});};
-$('board').onkeydown=e=>{const cell=e.target.closest('[data-x]');if(!cell)return;if(['Enter',' '].includes(e.key)){e.preventDefault();cell.dispatchEvent(new MouseEvent('click',{bubbles:true}));}if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();const x=Math.max(0,Math.min(23,+cell.dataset.x+(e.key==='ArrowRight'?1:e.key==='ArrowLeft'?-1:0))),y=Math.max(0,Math.min(15,+cell.dataset.y+(e.key==='ArrowDown'?1:e.key==='ArrowUp'?-1:0)));$('board').querySelector(`[data-x="${x}"][data-y="${y}"]`)?.focus();}};
+$('board').onkeydown=e=>{const cell=e.target.closest('[data-x]');if(!cell)return;if(['Enter',' '].includes(e.key)){e.preventDefault();cell.dispatchEvent(new MouseEvent('click',{bubbles:true}));}if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();const x=Math.max(0,Math.min(map==='world'?COLS-1:23,+cell.dataset.x+(e.key==='ArrowRight'?1:e.key==='ArrowLeft'?-1:0))),y=Math.max(0,Math.min(map==='world'?ROWS-1:15,+cell.dataset.y+(e.key==='ArrowDown'?1:e.key==='ArrowUp'?-1:0)));$('board').querySelector(`[data-x="${x}"][data-y="${y}"]`)?.focus();}};
 async function api(path,data){const r=await fetch('/api/'+path,{method:data?'POST':'GET',headers:{'Content-Type':'application/json','Authorization':credentials?.token||''},body:data?JSON.stringify(data):undefined});const body=await r.json();if(!r.ok){const e=Error(body.error);e.status=r.status;throw e;}return body;}
 function error(e){$('error').textContent=e.message;}
 async function action(data){try{state=await api('action',data);render();$('error').textContent='';return true;}catch(e){error(e);return false;}}
