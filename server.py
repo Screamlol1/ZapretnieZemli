@@ -19,6 +19,25 @@ from terrain_map import load_reference, effective_world
 ROOT = Path(__file__).parent
 LOCK = threading.RLock()
 
+class RequestLimits:
+    """Bounded per-address request windows for the public test server."""
+    def __init__(self,limits=None):
+        self.limits=limits or {'auth':(30,60),'write':(240,60),'read':(1800,60)}
+        self.windows={};self.lock=threading.Lock();self.cleaned=0
+
+    def retry_after(self,address,group):
+        now=time.monotonic();maximum,period=self.limits[group]
+        with self.lock:
+            if now-self.cleaned>=60:
+                self.windows={k:v for k,v in self.windows.items() if now-v[0]<self.limits[k[1]][1]}
+                self.cleaned=now
+            key=(address,group);start,count=self.windows.get(key,(now,0))
+            if now-start>=period:start,count=now,0
+            if count>=maximum or key not in self.windows and len(self.windows)>=8192:
+                return max(1,int(period-(now-start))+1)
+            self.windows[key]=(start,count+1)
+        return 0
+
 class Game:
     def __init__(self, database, reference_root=None):
         self.reference_root=Path(reference_root) if reference_root is not None else ROOT/'local-assets'
@@ -410,15 +429,32 @@ class Game:
         if result.returncode:raise ValueError(result.stderr.strip()[:500] or 'Ошибка боевого движка.')
         return json.loads(result.stdout)
 
-def make_handler(game):
+def make_handler(game,public_test=False,max_rooms=50,limits=None):
+    limiter=limits if limits is not None else RequestLimits() if public_test else None
     class Handler(BaseHTTPRequestHandler):
-        def respond(self, status, body):
+        def setup(self):
+            super().setup();self.connection.settimeout(15)
+
+        def respond(self, status, body, retry_after=None):
             raw=json.dumps(body,ensure_ascii=False).encode()
             self.send_response(status); self.send_header('Content-Type','application/json; charset=utf-8')
             self.send_header('Cache-Control','no-store'); self.send_header('Content-Length',str(len(raw)))
+            self.send_header('X-Content-Type-Options','nosniff');self.send_header('Referrer-Policy','no-referrer')
+            if retry_after:self.send_header('Retry-After',str(retry_after))
             self.end_headers(); self.wfile.write(raw)
 
+        def limited(self,group):
+            if limiter is None:return False
+            address=self.client_address[0]
+            # This opt-in server sits behind cloudflared; Cloudflare sets this header.
+            if public_test and address in ('127.0.0.1','::1'):
+                address=self.headers.get('CF-Connecting-IP',address)[:100]
+            retry=limiter.retry_after(address,group)
+            if retry:self.respond(429,{'error':'Слишком много запросов. Подождите немного и повторите.'},retry)
+            return bool(retry)
+
         def do_POST(self):
+            if self.limited('auth' if self.path in ('/api/create','/api/join') else 'write'):return
             try:
                 length=int(self.headers.get('Content-Length','0'))
                 if not 0<length<=(5500000 if self.path=='/api/map-image' else 150000): raise ValueError('Некорректный размер запроса.')
@@ -431,6 +467,8 @@ def make_handler(game):
                 if not isinstance(data,dict): raise ValueError('Ожидается объект JSON.')
                 with LOCK:
                     if self.path in ('/api/create','/api/join'):
+                        if public_test and self.path=='/api/create' and game.db.execute('SELECT COUNT(*) FROM rooms').fetchone()[0]>=max_rooms:
+                            raise ValueError('Тестовый сервер достиг лимита кампаний. Обратитесь к владельцу сервера.')
                         result=game.login(data,self.path=='/api/create')
                     elif self.path=='/api/action':
                         result=game.action(game.session(self.headers.get('Authorization','')),data)
@@ -446,6 +484,9 @@ def make_handler(game):
             except (ValueError,TypeError,KeyError) as e: self.respond(400,{'error':str(e)})
 
         def do_GET(self):
+            if self.limited('read'):return
+            if urlparse(self.path).path=='/api/health':
+                self.respond(200,{'ok':True,'publicTest':public_test});return
             if urlparse(self.path).path=='/api/map-image':
                 try:
                     with LOCK:raw,mime=game.map_image(game.session(self.headers.get('Authorization','')))
@@ -470,13 +511,17 @@ def make_handler(game):
             self.send_header('Content-Type',mimetypes.guess_type(target)[0] or 'application/octet-stream')
             self.send_header('Content-Length',str(len(raw)))
             self.send_header('X-Content-Type-Options','nosniff')
+            self.send_header('Cache-Control','no-cache');self.send_header('Referrer-Policy','no-referrer')
             self.end_headers(); self.wfile.write(raw)
     return Handler
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser()
     parser.add_argument('--host',default='127.0.0.1'); parser.add_argument('--port',type=int,default=8787)
+    parser.add_argument('--database',type=Path,default=ROOT/'campaigns.sqlite')
+    parser.add_argument('--public-test',action='store_true',help='Enable request limits and a 50-campaign cap for a test deployment.')
     args=parser.parse_args()
-    game=Game(ROOT/'campaigns.sqlite')
+    args.database.parent.mkdir(parents=True,exist_ok=True)
+    game=Game(args.database)
     print(f'Open http://{args.host}:{args.port}',flush=True)
-    ThreadingHTTPServer((args.host,args.port),make_handler(game)).serve_forever()
+    ThreadingHTTPServer((args.host,args.port),make_handler(game,public_test=args.public_test)).serve_forever()

@@ -4,3 +4,4 @@ __pycache__/
 *.log
 local-assets/
 map-images/
+.runtime/
