@@ -10,6 +10,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
+from campaign_rules import apply as campaign_action, state as journey_state
 
 ROOT = Path(__file__).parent
 LOCK = threading.RLock()
@@ -85,16 +86,20 @@ class Game:
 
     def view(self, s):
         room = self.room(s['room'])
+        journey_state(room)
         identities=room.get('identities',{})
         room.pop('gmKey'); room.pop('playerKey')
         room.pop('identities',None)
         if s['role']=='gm':
             room['owners']=[dict(owner=x['owner'],name=x.get('name','Участник'),role=x['role']) for x in identities.values()]
         room.pop('combatOwners',None)
-        room['characters'] = [c if s['role']=='gm' or c['owner']==s['owner'] else
+        room['characters'] = [c if s['role']=='gm' or c['owner']==s['owner'] and c['kind']=='pc' else
                               {**{k:v for k,v in c.items() if k in ('id','owner','name','kind','visual')},'kin':c.get('sheet',{}).get('kin')} for c in room['characters']
                               if s['role']=='gm' or not c.get('hidden')]
         if s['role']!='gm':
+            room['journey']['pendingCount']=len(room['journey']['pending'])
+            room['journey']['pending']=[]
+            room['journey']['history']=[e for e in room['journey']['history'] if not e.get('private')]
             room['tokens'] = [t for t in room['tokens'] if not t.get('hidden')]
             room['maps'] = {kind:{k:v for k,v in cells.items() if not v.get('hidden')} for kind,cells in room['maps'].items()}
             for u in room.get('combat',{}).get('units',[]):
@@ -110,7 +115,9 @@ class Game:
         gm = s['role']=='gm'
         if action in ('paint','event','deleteCharacter','assignCharacter','deleteToken','combatCreate','combatClose','actor','combatManual') and not gm:
             raise PermissionError('Действие доступно только Мастеру.')
-        if action=='character':
+        if isinstance(action,str) and (action.startswith('travel') or action.startswith('hold')):
+            campaign_action(room,s,data)
+        elif action=='character':
             sheet = data.get('sheet')
             if not isinstance(sheet, dict) or sheet.get('game')!='forbidden-lands' or not isinstance(sheet.get('name'),str):
                 raise ValueError('Нужен JSON из конструктора персонажей.')
@@ -177,6 +184,7 @@ class Game:
             if actor['kind']=='npc':actor['runtime']=dict(current=actor['sheet']['attrs'].copy(),wp=0)
             else:actor['runtime']=dict(current=dict(str=actor['monster']['strength'],agi=actor['monster']['agility'],wit=1,emp=1),wp=0)
             if old and old['kind']==actor['kind']:
+                actor['runtime']={**old.get('runtime',{}),**actor['runtime']}
                 actor['runtime']['current']={k:min(old.get('runtime',{}).get('current',{}).get(k,v),v) for k,v in actor['runtime']['current'].items()}
             room['characters']=[c for c in room['characters'] if c['id']!=actor['id']]+[actor]
         elif action=='runtime':
@@ -198,7 +206,7 @@ class Game:
             if kind not in room['maps'] or type(x)!=int or type(y)!=int or not 0<=x<24 or not 0<=y<16:
                 raise ValueError('Клетка вне карты.')
             terrain = data.get('terrain')
-            if terrain not in ('plain','forest','water','mountain','wall','rough','road','ruin'):
+            if terrain not in ('plain','forest','darkforest','hills','highmountain','marsh','water','mountain','wall','rough','road','ruin'):
                 raise ValueError('Неизвестная местность.')
             room['maps'][kind][f'{x},{y}'] = dict(terrain=terrain,hidden=bool(data.get('hidden')))
         elif action=='token':
