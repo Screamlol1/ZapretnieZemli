@@ -1,0 +1,1 @@
+{"name":"forbidden-lands-table","private":true,"type":"module","scripts":{"test":"node rules-tests/all.mjs"}}
