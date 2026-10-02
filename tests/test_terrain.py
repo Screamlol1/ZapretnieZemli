@@ -9,6 +9,7 @@ from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).parents[1]))
 from server import Game
 from terrain_map import load_reference
+from campaign_rules import state
 
 class ImportTests(unittest.TestCase):
     def test_rle_rows_preserve_rgb_bytes_and_reject_truncation(self):
@@ -28,7 +29,7 @@ class TerrainTests(unittest.TestCase):
         self.write();self.game=Game(self.root/'test.sqlite',reference_root=self.assets)
         self.auth=self.game.login({'name':'GM'},True);self.gm=self.game.session(self.auth['token'])
         p=self.game.login(dict(name='Player',code=self.auth['code'],key=self.auth['playerKey']));self.player=self.game.session(p['token'])
-        room=self.game.room(self.gm['room'])
+        room=self.game.room(self.gm['room']);state(room)['automatic']=False
         room['characters']=[dict(id='hero',name='Hero',kind='pc',owner=self.player['owner'],sheet=dict(attrs=dict(str=3,agi=3,wit=3,emp=3),skills=dict(survive=1)),runtime=dict(current=dict(str=3,agi=3,wit=3,emp=3),wp=0))]
         self.game.save(room)
 

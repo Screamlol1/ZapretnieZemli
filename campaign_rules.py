@@ -1,5 +1,6 @@
 """Journey and stronghold state. PH chapters 7–8; complex consequences stay with GM."""
 import secrets
+from copy import deepcopy
 from terrain_map import cell_at
 
 TERRAINS = {
@@ -69,7 +70,36 @@ def pending(room,category,source,roll=None):
     t['pending'].append(item); return item
 
 def state(room):
-    return room.setdefault('journey',dict(day=1,quarter=0,season='spring',position={'x':0,'y':0},party=[],plans={},visited=[],history=[],pending=[],revision=0,hikes=0,session=1,homeDays={},encounterDay=0))
+    t=room.setdefault('journey',dict(day=1,quarter=0,season='spring',position={'x':0,'y':0},party=[],plans={},visited=[],history=[],pending=[],revision=0,hikes=0,session=1,homeDays={},encounterDay=0))
+    for k,v in dict(automatic=True,phase='planning',route=[],gmReady=False,completed={},completionVersions={},blocker='',planVersions={},routeVersion=0).items():t.setdefault(k,v)
+    t.setdefault('cycleId',f"{room['id']}:{t['day']}:{t['quarter']}:initial")
+    return t
+
+def participants(room):
+    """Owners of PCs in the party; GM confirms all GM-controlled characters."""
+    t=state(room);identities=room.get('identities',{})
+    gm_owners={i['owner'] for i in identities.values() if i['role']=='gm'}
+    return sorted({c['owner'] for c in room['characters'] if c['id'] in t['party'] and c['kind']=='pc' and c['owner'] not in gm_owners})+['gm']
+
+def try_cycle(room):
+    t=state(room)
+    if not t['automatic'] or not t['party']:return
+    if t['phase']=='planning' and t['gmReady'] and not t['pending'] and all(cid in t['plans'] for cid in t['party']):
+        # Validate and execute on a copy: a bad route never commits partial rolls or damage.
+        trial=deepcopy(room)
+        try:advance(trial,dict(path=t['route']),defer_clock=True)
+        except ValueError as e:
+            t['blocker']=str(e);t['gmReady']=False;return
+        room.update(trial);t=room['journey'];t.update(phase='resolving',completed={},blocker='')
+    if t['phase']=='resolving' and not t['pending'] and all(t['completed'].get(k) for k in participants(room)):
+        finish_quarter(room)
+
+def finish_quarter(room):
+    t=room['journey'];t['quarter']=(t['quarter']+1)%4
+    if t['quarter']==0:t['day']+=1;t['hikes']=0
+    fresh_stock(t)
+    t.update(plans={},phase='planning',route=[],gmReady=False,completed={},completionVersions={},blocker='',planVersions={},routeVersion=t['routeVersion']+1,cycleId=secrets.token_hex(8))
+    journal(room,f"Все участники и Мастер завершили действия. День {t['day']}, {('утро','день','вечер','ночь')[t['quarter']]}.")
 
 def fresh_stock(t):
     now=t['day']*4+t['quarter']
@@ -88,16 +118,29 @@ def counts_as_rest(c,p):
 
 def apply(room,s,data):
     action=data['action']; gm=s['role']=='gm'; t=state(room)
-    if data.get('revision')!=t['revision']: raise ValueError('Путешествие обновилось. Повторите действие после синхронизации.')
-    if action not in ('travelPlan','travelConsume') and not gm: raise PermissionError('Действие доступно только Мастеру.')
+    who='gm' if gm else s['owner']
+    cycle=[t['day'],t['quarter'],t['cycleId']]
+    concurrent=data.get('cycle')==cycle and data.get('phase')==t['phase']
+    if action=='travelPlan':concurrent=concurrent and data.get('planVersion')==t['planVersions'].get(data.get('id'),0)
+    elif action in ('travelRoute','travelReady'):concurrent=concurrent and data.get('routeVersion')==t['routeVersion']
+    elif action=='travelComplete':concurrent=concurrent and data.get('completionVersion')==t['completionVersions'].get(who,0)
+    else:concurrent=False
+    if data.get('revision')!=t['revision'] and not concurrent: raise ValueError('Путешествие обновилось. Повторите действие после синхронизации.')
+    if data.get('cycle') is not None and (data['cycle']!=cycle or data.get('phase')!=t['phase']):raise ValueError('Эта четверть уже завершена или начались проверки. Обновите заявку.')
+    if action=='travelPlan' and 'planVersion' in data and data['planVersion']!=t['planVersions'].get(data.get('id'),0):raise ValueError('Заявка этого персонажа уже изменена. Обновите её.')
+    if action in ('travelRoute','travelReady') and 'routeVersion' in data and data['routeVersion']!=t['routeVersion']:raise ValueError('Маршрут уже изменён. Обновите его.')
+    if action=='travelComplete' and 'completionVersion' in data and data['completionVersion']!=t['completionVersions'].get(who,0):raise ValueError('Результаты действий изменились. Проверьте их перед подтверждением.')
+    if action not in ('travelPlan','travelConsume','travelComplete') and not gm: raise PermissionError('Действие доступно только Мастеру.')
     if room.get('combat',{}).get('phase')=='combat': raise ValueError('Сначала завершите активный бой.')
+    if t['phase']=='resolving' and action in ('travelSetup','travelPlan','travelRoute','travelReady','travelAdvance'):
+        raise ValueError('Действия уже выполняются. Сначала завершите текущую четверть.')
     if action=='travelSetup':
         ids=data.get('party'); p=coordinate(data,room); season=data.get('season')
         if not isinstance(ids,list) or not 1<=len(ids)<=11 or len(set(ids))!=len(ids): raise ValueError('Выберите 1–11 разных участников.')
         if any(not any(c['id']==cid and c['kind']!='monster' and not c.get('hidden') for c in room['characters']) for cid in ids): raise ValueError('Нужны открытые герои или ПВ.')
         if season not in ('spring','summer','autumn','winter'): raise ValueError('Неизвестное время года.')
         if t['pending']: raise ValueError('Сначала разрешите незавершённые события.')
-        t.update(party=ids,position=p,season=season,mounted=data.get('mounted') is True,plans={})
+        t.update(party=ids,position=p,season=season,mounted=data.get('mounted') is True,plans={},route=[],gmReady=False,completed={},completionVersions={},blocker='',planVersions={},routeVersion=t['routeVersion']+1,cycleId=secrets.token_hex(8))
         if key(p) not in t['visited']:t['visited'].append(key(p))
         journal(room,f"Отряд собран. Старт: {p['x']+1}, {p['y']+1}.")
     elif action=='travelPlan':
@@ -109,6 +152,26 @@ def apply(room,s,data):
         mod=integer(data.get('modifier',0),-10,10) if gm else previous.get('modifier',0)
         gear=integer(data.get('gear',0),0,10) if gm else previous.get('gear',0)
         t['plans'][cid]=dict(job=job,role=role,modifier=mod,gear=gear,scoutModifier=integer(data.get('scoutModifier',0),-10,10) if gm else previous.get('scoutModifier',0),endureModifier=integer(data.get('endureModifier',0),-10,10) if gm else previous.get('endureModifier',0),equipped=(data.get('equipped') is True if gm else previous.get('equipped',False)),darkvision=(data.get('darkvision') is True if gm else previous.get('darkvision',False)))
+        if previous and previous!=t['plans'][cid]:
+            t['gmReady']=False;t['routeVersion']+=1
+        t['planVersions'][cid]=t['planVersions'].get(cid,0)+1
+        t['blocker']=''
+    elif action in ('travelRoute','travelReady'):
+        if 'path' in data:
+            path=data['path']
+            if not isinstance(path,list) or len(path)>3:raise ValueError('Маршрут: до трёх гексов.')
+            t['route']=[coordinate(p,room) for p in path]
+            t['routeVersion']+=1
+        t['blocker']='';t['gmReady']=action=='travelReady' and data.get('ready') is True
+        if action=='travelReady' and 'path' not in data:t['routeVersion']+=1
+        if not t['party']:raise ValueError('Сначала соберите отряд.')
+    elif action=='travelComplete':
+        if t['phase']!='resolving':raise ValueError('Сначала заявите занятия и выполните проверки.')
+        who='gm' if gm else s['owner']
+        if who not in participants(room):raise PermissionError('Вы не управляете героем этого отряда.')
+        if t['pending']:raise ValueError('Сначала Мастер должен разрешить все события и последствия проверок.')
+        if type(data.get('complete'))!=bool:raise ValueError('Укажите готовность участника.')
+        t['completed'][who]=data['complete']
     elif action=='travelConditions':
         c=next((c for c in room['characters'] if c['id']==data.get('id') and c['kind']!='monster'),None)
         flags=data.get('conditions')
@@ -135,13 +198,14 @@ def apply(room,s,data):
             batch=min((b for b in t['batches'] if b['kind']==source and b['amount']>0),key=lambda b:b['expires'])
             batch['amount']-=1;used[res]=t['day'];fresh_stock(t)
             rt.setdefault('conditions',{})['hungry']=False
-            journal(room,c['name']+': использована одна единица найденной пищи ('+source+').');t['revision']+=1;return
-        size=rt.get('resources',{}).get(res,0)
-        if not size:raise ValueError('Припасы закончились. Используйте найденную пищу или пополните запасы через Мастера.')
-        roll=dice(1,size)[0]; new=[0,6,8,10,12][[0,6,8,10,12].index(size)-1] if roll<=2 else size
-        rt['resources'][res]=new;used[res]=t['day']
-        rt.setdefault('conditions',{})['hungry' if res=='food' else 'thirsty']=False
-        journal(room,f"{c['name']}: {'еда' if res=='food' else 'вода'} D{size} → {roll}; остаток {'D'+str(new) if new else 'пусто'}.")
+            journal(room,c['name']+': использована одна единица найденной пищи ('+source+').')
+        if source is None:
+            size=rt.get('resources',{}).get(res,0)
+            if not size:raise ValueError('Припасы закончились. Используйте найденную пищу или пополните запасы через Мастера.')
+            roll=dice(1,size)[0]; new=[0,6,8,10,12][[0,6,8,10,12].index(size)-1] if roll<=2 else size
+            rt['resources'][res]=new;used[res]=t['day']
+            rt.setdefault('conditions',{})['hungry' if res=='food' else 'thirsty']=False
+            journal(room,f"{c['name']}: {'еда' if res=='food' else 'вода'} D{size} → {roll}; остаток {'D'+str(new) if new else 'пусто'}.")
     elif action=='travelFinds':
         kind=data.get('kind');amount=integer(data.get('amount'),1,100)
         if kind not in ('vegetables','meat','fish','pelts') or data.get('confirmed') is not True:raise ValueError('Подтвердите полученную добычу.')
@@ -177,15 +241,27 @@ def apply(room,s,data):
         item=pending(room,'Авторская зацепка','Авторский генератор; не официальная таблица.')
         item['note']=hook
     elif action=='travelAdvance':
+        if t['automatic']:raise ValueError('Четверть сменяется автоматически после завершения действий всех участников и Мастера.')
         advance(room,data)
     elif action=='travelSession':
         t['session']+=1;journal(room,f"Началась игровая сессия {t['session']}.")
     elif action.startswith('hold'):
         stronghold(room,data)
     else:raise ValueError('Неизвестное действие кампании.')
+    if t['phase']=='resolving' and action not in ('travelComplete',):
+        affected={who}
+        if gm and action in ('travelConditions','travelSupplies','travelRecover','travelConsume'):
+            c=next((c for c in room['characters'] if c['id']==data.get('id')),None)
+            if c:affected.add(c['owner'])
+        if action in ('travelEvent','holdRoll','travelFinds'):affected.update(participants(room))
+        for owner in affected:
+            t['completed'].pop(owner,None)
+            t['completionVersions'][owner]=t['completionVersions'].get(owner,0)+1
+    if t['phase']=='planning' and action=='travelEvent':t['gmReady']=False
+    try_cycle(room);t=room['journey']
     t['revision']+=1;t['history']=t['history'][-100:]
 
-def advance(room,data):
+def advance(room,data,defer_clock=False):
     t=room['journey']
     if not t['party']:raise ValueError('Сначала соберите отряд.')
     if t['pending']:raise ValueError('Сначала Мастер должен разрешить ожидающие события.')
@@ -297,16 +373,18 @@ def advance(room,data):
     t['history'].append(dict(day=oldday,quarter=oldquarter,path=completed,rolls=rolls,plans={cid:p.copy() for cid,p in plans.items()}))
     trail=['{}, {}'.format(*(int(n)+1 for n in k.split(','))) for k in completed]
     journal(room,f"День {oldday}, {('утро','день','вечер','ночь')[oldquarter]}: "+(' → '.join(trail) if completed else 'стоянка')+'.')
-    t['quarter']=(t['quarter']+1)%4
-    if t['quarter']==0:
-        t['day']+=1;t['hikes']=0
+    nextquarter=(t['quarter']+1)%4
+    if not defer_clock:
+        t['quarter']=nextquarter
+        if nextquarter==0:t['day']+=1;t['hikes']=0
+    if nextquarter==0:
         for c in party:
             rt=c['runtime'];missing=[label for k,label in [('food','еда'),('water','вода')] if rt.get('consumed',{}).get(k)!=oldday]
             if rt.get('sleptDay')!=oldday:missing.append('сон')
             if missing:pending(room,c['name']+': суточные потребности','Книга игрока, стр. 110–111: проверьте состояния, исключения народов/достоинств и полученную пищу. '+', '.join(missing))
         for h in room.get('strongholds',[]):
-            if t['day']-h.get('reviewDay',1)>=7:pending(room,'Еженедельная проверка: '+h['name'],'Книга игрока, стр. 162–165: оплата, охрана, обслуживание; Руководство ведущего, стр. 12–13: события цитадели. Заполните отметку проверки.')
-    fresh_stock(t);t['plans']={}
+            if (oldday+1)-h.get('reviewDay',1)>=7:pending(room,'Еженедельная проверка: '+h['name'],'Книга игрока, стр. 162–165: оплата, охрана, обслуживание; Руководство ведущего, стр. 12–13: события цитадели. Заполните отметку проверки.')
+    if not defer_clock:fresh_stock(t);t['plans']={}
 
 def stronghold(room,data):
     t=room['journey'];action=data['action'];holds=room.setdefault('strongholds',[])

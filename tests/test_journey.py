@@ -12,7 +12,7 @@ class JourneyTests(unittest.TestCase):
         self.tmp=tempfile.TemporaryDirectory();self.game=Game(Path(self.tmp.name)/'test.sqlite',reference_root=Path(self.tmp.name)/'local-assets')
         self.login=self.game.login({'name':'Мастер'},True);self.gm=self.game.session(self.login['token'])
         p=self.game.login({'name':'Игрок','code':self.login['code'],'key':self.login['playerKey']});self.player=self.game.session(p['token'])
-        room=self.game.room(self.gm['room']);room['worldLayout']='legacy';state(room)
+        room=self.game.room(self.gm['room']);room['worldLayout']='legacy';state(room)['automatic']=False
         room['characters']=[dict(id='hero',name='Герой',kind='pc',owner=self.player['owner'],hidden=False,sheet=dict(kin='human',attrs=dict(str=4,agi=3,wit=3,emp=2),skills=dict(survive=2,scout=1,endure=2,craft=1)),runtime=dict(current=dict(str=4,agi=3,wit=3,emp=2),wp=0,resources=dict(food=6,water=8)))]
         self.game.save(room)
         self.act('travelSetup',party=['hero'],x=0,y=0,season='spring')

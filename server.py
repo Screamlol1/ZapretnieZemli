@@ -12,7 +12,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
-from campaign_rules import apply as campaign_action, state as journey_state, coordinate
+from campaign_rules import apply as campaign_action, state as journey_state, coordinate, participants
 
 from terrain_map import load_reference, effective_world
 
@@ -101,6 +101,10 @@ class Game:
         room['mapTerrain']={'referenceCount':len(room.get('_worldBase',{}))}
         room.pop('_worldBase',None)
         identities=room.get('identities',{})
+        t=room['journey']
+        t['cycleParticipants']=[dict(owner=owner,name='Мастер' if owner=='gm' else next((i.get('name','Игрок') for i in identities.values() if i['owner']==owner), 'Игрок'),
+            declared=t['gmReady'] if owner=='gm' else all(c['id'] in t['plans'] for c in room['characters'] if c['id'] in t['party'] and c['kind']=='pc' and c['owner']==owner),
+            complete=bool(t['completed'].get(owner))) for owner in participants(room)] if t['party'] else []
         room.pop('gmKey'); room.pop('playerKey')
         room.pop('identities',None)
         if s['role']=='gm':
@@ -118,6 +122,9 @@ class Game:
             room['journey']['pendingCount']=len(room['journey']['pending'])
             room['journey']['pending']=[]
             room['journey']['history']=[e for e in room['journey']['history'] if not e.get('private')]
+            own_ids={c['id'] for c in room['characters'] if c['kind']=='pc' and c['owner']==s['owner']}
+            for entry in room['journey']['history']:
+                if 'rolls' in entry:entry['rolls']=[r for r in entry['rolls'] if r['character'] in own_ids and r['skill']!='scout']
             room['tokens'] = [t for t in room['tokens'] if not t.get('hidden')]
             room['maps'] = {kind:{k:v for k,v in cells.items() if not v.get('hidden')} for kind,cells in room['maps'].items()}
             for cells in room['maps'].values():
@@ -136,6 +143,9 @@ class Game:
         room = self.room(s['room'])
         action = data.get('action')
         gm = s['role']=='gm'
+        t=journey_state(room)
+        if t['phase']=='resolving' and action in ('character','actor','deleteCharacter','assignCharacter','runtime') and data.get('id') in t['party']:
+            raise ValueError('Персонаж выполняет занятие. Завершите текущую четверть перед изменением листа или владельца.')
         if action in ('paint','mapLocation','mapArtwork','worldLayout','event','deleteCharacter','assignCharacter','deleteToken','combatCreate','combatClose','actor','combatManual') and not gm:
             raise PermissionError('Действие доступно только Мастеру.')
         if isinstance(action,str) and (action.startswith('travel') or action.startswith('hold')):
@@ -360,6 +370,8 @@ class Game:
             raise ValueError('Неизвестное действие.')
         room['log']=room['log'][-200:]
         room['revision']+=1
+        if action in ('paint','mapArtwork','worldLayout','character','actor','deleteCharacter','assignCharacter','runtime') and room['journey']['phase']=='planning':
+            room['journey']['gmReady']=False
         self.save(room)
         return self.view(s)
 
