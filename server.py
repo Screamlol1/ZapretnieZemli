@@ -1,4 +1,5 @@
 """Campaign server. Python 3.11+, no third-party dependencies."""
+from journal import stamp_entries
 import argparse
 import base64
 import binascii
@@ -202,6 +203,7 @@ class Game:
 
     def action(self, s, data):
         room = self.room(s['room'])
+        previous_logs={id(entry) for entry in room['log']}
         action = data.get('action')
         gm = s['role']=='gm'
         t=journey_state(room)
@@ -450,6 +452,7 @@ class Game:
                                    (' (отрицательные)' if n<0 else '')+f', снаряжение {pools[2]}. Успехов: {max(0,hits)}.'))
         else:
             raise ValueError('Неизвестное действие.')
+        stamp_entries(room,previous_logs,action)
         room['log']=room['log'][-200:]
         room['revision']+=1
         if action in ('paint','mapArtwork','worldLayout','character','actor','deleteCharacter','assignCharacter','runtime') and room['journey']['phase']=='planning':

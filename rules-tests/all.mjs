@@ -10,3 +10,5 @@ import './world-map.test.mjs';
 import './network.test.mjs';
 import './equipment.test.mjs';
 import './workshop.test.mjs';
+
+import './journal.test.mjs';

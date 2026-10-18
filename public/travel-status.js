@@ -19,10 +19,16 @@ export function travelStatus(s){
  return {...result,text:'Ожидаем Мастера',reason:'Заявки сохранены. Мастер подтверждает маршрут и условия.'};
 }
 export function renderTravelStatus(s){
- const status=travelStatus(s),t=s.journey,button=document.getElementById('map-advance'),panel=document.getElementById('journey-overview');
- button.textContent=status.text;button.disabled=status.action==='wait';
- document.getElementById('map-readiness').textContent=t.phase==='planning'?`Заявки ${t.party.length-status.missing.length}/${t.party.length}`:`Подтверждения ${(t.cycleParticipants||[]).filter(p=>p.complete).length}/${t.cycleParticipants?.length||0}`;
- const markup=`<div class="journey-progress" aria-label="Этапы четверти">${['1 · Заявки','2 · Проверки и события','3 · Подтверждения'].map((v,i)=>`<span class="${status.stage===i?'current':''}">${v}</span>`).join('')}</div><p><strong>Отряд: ${label(t.position)}</strong> · ${t.route?.length?'Маршрут: '+t.route.map(label).join(' → '):'Маршрут не выбран'}</p><p class="${t.blocker?'editor-error':''}">${esc(status.reason)}</p><ul>${status.party.map(c=>{const p=t.plans[c.id],present=s.members?.some(m=>m.owner===c.owner),own=s.me.role==='gm'||c.owner===s.me.owner;return `<li>${esc(c.name)} — ${p?esc(jobs[p.job]||p.job)+(p.role==='lead'?' · проводник':p.role==='watch'?' · дозорный':''):'ожидается заявка'}${!present?' · владелец не в сети':''}${own&&c.load?.overloaded?' · перегруз':''}</li>`;}).join('')}</ul><small>Четверть сменится после разрешения событий и подтверждения всех владельцев героев и Мастера.</small>`;
- if(panel.innerHTML!==markup)panel.innerHTML=markup;
+ const status=travelStatus(s),t=s.journey,gm=s.me.role==='gm',button=document.getElementById('map-advance'),panel=document.getElementById('journey-overview');
+ button.textContent=status.text;button.disabled=status.action==='wait';button.hidden=!gm;
+ const readiness=t.phase==='planning'?`Заявки ${t.party.length-status.missing.length}/${t.party.length}`:`Подтверждения ${(t.cycleParticipants||[]).filter(p=>p.complete).length}/${t.cycleParticipants?.length||0}`;
+ document.getElementById('map-readiness').textContent=readiness;
+ const progress=`<div class="journey-progress" aria-label="Этапы четверти">${['1 · Заявки','2 · Проверки и события','3 · Подтверждения'].map((v,i)=>`<span class="${status.stage===i?'current':''}">${v}</span>`).join('')}</div>`;
+ const roster=`<ul>${status.party.map(c=>{const p=t.plans[c.id],present=s.members?.some(m=>m.owner===c.owner),own=gm||c.owner===s.me.owner;return `<li>${esc(c.name)} — ${p?esc(jobs[p.job]||p.job)+(p.role==='lead'?' · проводник':p.role==='watch'?' · дозорный':''):'ожидается заявка'}${!present?' · владелец не в сети':''}${own&&c.load?.overloaded?' · перегруз':''}</li>`;}).join('')}</ul>`;
+ const route=`<p><strong>Отряд: ${label(t.position)}</strong> · ${t.route?.length?'Маршрут: '+t.route.map(label).join(' → '):'Маршрут не выбран'}</p>`;
+ const note='<small>Четверть сменится после разрешения событий и подтверждения всех владельцев героев и Мастера.</small>';
+ const markup=gm?`${progress}${route}<p class="${t.blocker?'editor-error':''}">${esc(status.reason)}</p><details data-party-status><summary>Отряд · ${status.party.length} персонажей</summary>${roster}</details>${note}`:`<details data-party-status><summary>Статус отряда · ${readiness} · ${label(t.position)}</summary>${progress}${route}${roster}${note}</details>`;
+ panel.classList.toggle('player-overview',!gm);
+ if(panel.innerHTML!==markup){const open=panel.querySelector('[data-party-status]')?.open;panel.innerHTML=markup;if(open)panel.querySelector('[data-party-status]').open=true;}
  return status;
 }
