@@ -1,4 +1,5 @@
-import {activeUnit,hexDistance,lineOfSight,battleDie,canSpend,BATTLE_WEAPONS} from './public/tools/battle-rules.js';
+import {protection,rollArtifact,artifactTotal} from './public/equipment-dice.js';
+import {activeUnit,hexDistance,lineOfSight,battleDie,canSpend,BATTLE_WEAPONS,weaponFor} from './public/tools/battle-rules.js';
 export function monsterAttack(battle,targetId,index,push=false,d=battleDie){
  const monster=activeUnit(battle),target=battle.units.find(u=>u.id===targetId);
  if(battle.phase!=='combat'||!monster?.monster||monster.str<=0||!monster.slow)throw Error('Нет медленного действия чудовища.');
@@ -18,13 +19,13 @@ export function monsterAttack(battle,targetId,index,push=false,d=battleDie){
   if(mode.startsWith('dodge')&&a.dodge){base=target.agi;skill=target.move;modifier=mode==='dodgeStand'?-2:0;if(mode==='dodge')target.prone=true;}
   else if(a.parry&&['weapon','shield'].includes(mode)){
    base=target.str;skill=target.melee;gear=mode==='shield'?target.shield:target.gear;
-   if(!gear||mode==='weapon'&&BATTLE_WEAPONS[target.weapon].ranged)base=undefined;
-   else if(mode==='weapon'&&!BATTLE_WEAPONS[target.weapon].parrying)modifier=-2;
+   if(!gear||mode==='weapon'&&weaponFor(target).ranged)base=undefined;
+   else if(mode==='weapon'&&!weaponFor(target).parrying)modifier=-2;
   }
-  if(base!==undefined){if(target.fast)target.fast--;else target.slow--;const sd=skill+modifier;defense=Math.max(0,hits(roll(base))+hits(roll(Math.abs(sd)))*(sd<0?-1:1)+hits(roll(gear)));}
+  if(base!==undefined){if(target.fast)target.fast--;else target.slow--;const sd=skill+modifier;defense=Math.max(0,hits(roll(base))+hits(roll(Math.abs(sd)))*(sd<0?-1:1)+hits(roll(gear))+artifactTotal(rollArtifact(mode==='shield'?target.shieldArtifact:mode==='weapon'?target.weaponArtifact:0,d)));}
  }
  const dice=roll(a.dice),net=hits(dice)-defense;let damage=0,armor=[];
- if(net>0){damage=a.damage+net-1;if(a.type==='physical'){armor=roll(target.armor);damage=Math.max(0,damage-hits(armor));if(damage)target.armor=Math.max(0,target.armor-armor.filter(v=>v===1).length);target.str=Math.max(0,target.str-damage);}else target.wits=Math.max(0,target.wits-damage);}
+ if(net>0){damage=a.damage+net-1;if(a.type==='physical'){const saved=protection(target,damage,d);armor=saved.dice;damage=saved.taken;target.str=Math.max(0,target.str-damage);}else target.wits=Math.max(0,target.wits-damage);}
  battle.log.push(`${monster.name}: D6 ${index+1} · ${a.name}, [${dice}], защита ${defense}, броня [${armor}] → ${target.name}, ${a.type==='fear'?'Разум':'Телосложение'} −${damage}. ${a.note}`);
  if(target.str===0&&target.monster)battle.log.push(`${target.name} погибает или умирает; критическая травма не бросается.`);
  battle.log=battle.log.slice(-300);return battle;

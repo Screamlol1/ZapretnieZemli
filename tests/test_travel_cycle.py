@@ -64,6 +64,25 @@ class TravelCycleTests(unittest.TestCase):
         for p in self.game.view(self.gm)['journey']['pending']:
             self.act('travelResolve',id=p['id'],note='Private outcome',reveal=False)
 
+    @patch('campaign_rules.dice',side_effect=lambda n,sides=6:[sides]*n)
+    def test_travel_item_replaces_manual_gear_and_adds_artifact(self,_):
+        room=self.game.room(self.gm['room'])
+        room['items']=[dict(id='compass',name='Компас',location=dict(kind='character',id='hero0'),kind='gear',bonus=3,wear=1,artifactDie='D10',weight=1,quantity=1,version=1)]
+        self.game.save(room)
+        self.plans(True);self.act('travelPlan',id='hero0',job='hike',role='lead',gearItem='compass',gear=9)
+        self.act('travelRoute',path=[dict(x=1,y=0)]);v=self.act('travelReady',ready=True)
+        rolls=v['journey']['history'][-1]['rolls'];r=next(r for r in rolls if r['character']=='hero0' and r['skill']=='survive')
+        self.assertEqual(len(r['gear']),2);self.assertEqual(r['formula']['gear'],2);self.assertEqual(r['artifacts'],[dict(sides=10,value=10)])
+        self.assertEqual(r['hits'],len(r['base'])+len(r['skillDice'])+2+3)
+
+    @patch('campaign_rules.dice',side_effect=lambda n,sides=6:[2]*n)
+    def test_overloaded_travel_stops_without_silent_agility_damage(self,_):
+        room=self.game.room(self.gm['room']);room['characters'][0]['inventoryInitialized']=True
+        room['items']=[dict(id='weight',name='Груз',location=dict(kind='character',id='hero0'),weight=20,quantity=1)]
+        self.game.save(room);self.plans(True);self.act('travelRoute',path=[dict(x=1,y=0)])
+        v=self.act('travelReady',ready=True);self.assertEqual(v['journey']['position'],dict(x=0,y=0));self.assertEqual(v['characters'][0]['runtime']['current']['agi'],3)
+        self.assertTrue(any('Перегруз' in e['category'] for e in v['journey']['pending']))
+
     @patch('campaign_rules.dice',side_effect=lambda n,sides=6:[6]*n)
     def test_waits_for_all_declarations_and_all_completions(self,_):
         self.act('travelReady',ready=True)

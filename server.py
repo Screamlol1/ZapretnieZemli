@@ -17,7 +17,9 @@ from urllib.parse import urlparse
 from campaign_rules import apply as campaign_action, state as journey_state, coordinate, participants
 
 from terrain_map import load_reference, effective_world
-from inventory_rules import apply as inventory_action, public_items
+from inventory_rules import apply as inventory_action, public_items, ensure as ensure_inventory
+from equipment_rules import combat_gear, sync_wear, load as inventory_load
+from skill_checks import apply as character_check
 
 ROOT = Path(__file__).parent
 LOCK = threading.RLock()
@@ -145,6 +147,8 @@ class Game:
         room['mapArtwork']['uploadAvailable']=bool(artwork.get('file'))
         room['mapFog']={kind:[k for k,v in cells.items() if v.get('hidden')] for kind,cells in room['maps'].items()}
         room['items']=public_items(room,s)
+        for c in room['characters']:
+            if c.get('inventoryInitialized') and c.get('sheet'):c['load']=inventory_load(room,c)
         room['characters'] = [c if s['role']=='gm' or c['owner']==s['owner'] and c['kind']=='pc' else
                               {**{k:v for k,v in c.items() if k in ('id','owner','name','kind','visual')},'kin':c.get('sheet',{}).get('kin')} for c in room['characters']
                               if s['role']=='gm' or not c.get('hidden')]
@@ -178,9 +182,18 @@ class Game:
             raise ValueError('Персонаж выполняет занятие. Завершите текущую четверть перед изменением листа или владельца.')
         if action in ('paint','mapLocation','mapArtwork','worldLayout','event','deleteCharacter','assignCharacter','deleteToken','combatCreate','combatClose','actor','combatManual') and not gm:
             raise PermissionError('Действие доступно только Мастеру.')
-        if action in ('inventoryOpen','itemCreate','itemEdit','itemTransfer'):
+        if action in ('inventoryOpen','itemCreate','itemEdit','itemTransfer','itemWear','equipment','inventoryCoins'):
             inventory_action(room,s,data)
+            if action!='inventoryOpen':room['journey']['gmReady']=False
+        elif action in ('characterRoll','characterPush'):
+            character_check(room,s,data)
         elif isinstance(action,str) and (action.startswith('travel') or action.startswith('hold')):
+            if action in ('travelSetup','travelParty','travelPlan','travelReady','travelAdvance'):
+                ids=data.get('party',t['party'])
+                if isinstance(ids,list):
+                    for c in room['characters']:
+                        if c['id'] in ids and c['kind']!='monster' and c.get('sheet',{}).get('game')=='forbidden-lands':
+                            ensure_inventory(room,c['id'])
             campaign_action(room,s,data)
         elif action=='character':
             sheet = data.get('sheet')
@@ -213,7 +226,10 @@ class Game:
             if old and old['kind']!='pc':raise ValueError('ПВ и чудовища изменяются в редакторе Мастера.')
             c['runtime']=old.get('runtime',{}) if old else dict(current=sheet['attrs'].copy(),wp=0,resources=validated['resources'])
             if old and 'visual' in old:c['visual']=old['visual']
-            if old and old.get('inventoryInitialized'):c['inventoryInitialized']=True
+            if old and old.get('inventoryInitialized'):
+                c['inventoryInitialized']=True
+                for k in ('equipment','equipmentVersion'):
+                    if k in old:c[k]=old[k]
             c['runtime']['current']={k:min(c['runtime'].get('current',{}).get(k,v),v) for k,v in sheet['attrs'].items()}
             room['characters'] = [x for x in room['characters'] if x['id']!=cid]+[c]
         elif action=='assignCharacter':
@@ -248,7 +264,10 @@ class Game:
             actor['owner']=old['owner'] if old else s['owner']
             if len(room['characters'])>=100 and not old:raise ValueError('Предел: 100 персонажей.')
             if old and 'visual' in old:actor['visual']=old['visual']
-            if old and old.get('inventoryInitialized'):actor['inventoryInitialized']=True
+            if old and old.get('inventoryInitialized'):
+                actor['inventoryInitialized']=True
+                for k in ('equipment','equipmentVersion'):
+                    if k in old:actor[k]=old[k]
             if actor['kind']=='npc':actor['runtime']=dict(current=actor['sheet']['attrs'].copy(),wp=0)
             else:actor['runtime']=dict(current=dict(str=actor['monster']['strength'],agi=actor['monster']['agility'],wit=1,emp=1),wp=0)
             if old and old['kind']==actor['kind']:
@@ -337,7 +356,9 @@ class Game:
                 if not isinstance(choice,dict):raise ValueError('Некорректный отряд.')
                 c=next((c for c in room['characters'] if c['id']==choice.get('id')),None)
                 if not c or c.get('hidden') or c['id'] in seen or choice.get('team') not in ('A','B'):raise ValueError('Нужны разные открытые персонажи и отряды A/B.')
-                seen.add(c['id']);characters.append(dict(character=c,team=choice['team']));owners[c['id']]=c['owner']
+                equipped=None
+                if c['kind']!='monster':ensure_inventory(room,c['id']);equipped=combat_gear(room,c)
+                seen.add(c['id']);characters.append(dict(character=c,team=choice['team'],equipment=equipped));owners[c['id']]=c['owner']
             if len(set(c['team'] for c in characters))!=2:raise ValueError('Нужен хотя бы один боец в каждом отряде.')
             room['combat']=self.engine(dict(create=characters,mapId=data.get('mapId','road')))
             room['combatOwners']=owners;room['combatRevision']=room.get('combatRevision',0)+1
@@ -354,6 +375,7 @@ class Game:
                 if not char or char['kind']!='pc':raise PermissionError('ПВ и чудовищами управляет Мастер.')
                 if name!='defense' and battle['phase']=='combat' and actor!=battle['order'][battle['turn']]:raise PermissionError('Сейчас ход другого бойца.')
             room['combat']=self.engine(dict(battle=battle,command=cmd))
+            sync_wear(room,room['combat'])
             before=next((u for u in battle['units'] if u['id']==actor),None)
             hit_ids=[u['id'] for u in room['combat']['units'] if any(u[k]<next(v for v in battle['units'] if v['id']==u['id'])[k] for k in ('str','agi','wits','emp'))]
             room['combat']['event']=dict(id=secrets.token_hex(8),actor=actor,kind='move' if name=='move' else 'cast' if name=='cast' else 'strike' if name in ('slash','stab','shoot','punch','shove','monsterAttack') else 'idle',target=cmd.get('target'),hitIds=hit_ids,origin=dict(q=before['q'],r=before['r']) if before else None,time=time.time())

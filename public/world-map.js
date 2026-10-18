@@ -1,3 +1,4 @@
+import {renderTravelStatus} from './travel-status.js';
 import {center,vertices,extent,parseLabel,adjacent,routeProblem,terrainInfo,terrainRules,terrainPalette,movementText,setLayout,valid,label,COLS,ROWS} from './world-hex.js';
 const $=id=>document.getElementById(id),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const palette=terrainPalette;
@@ -79,7 +80,7 @@ export function worldMap(getState,action,credentials,onError,onRender=()=>{}){
   $('map-day').textContent=`День ${t.day} · ${['Утро','День','Вечер','Ночь'][t.quarter]}`;
   $('map-readiness').textContent=t.party.length?t.phase==='resolving'?`Действия выполнены · Подтверждения ${(t.cycleParticipants||[]).filter(p=>p.complete).length}/${(t.cycleParticipants||[]).length}${pending?' · События: '+pending:''}`:`Заявки ${count}/${t.party.length} · ${t.gmReady?'Мастер готов':'Ожидается Мастер'}`:'Выберите участников и стартовый гекс в действиях отряда ниже';
   $('map-pending').hidden=!pending||s.me.role!=='gm';$('map-pending').textContent=`Решения Мастера · ${pending}`;
-  $('map-advance').disabled=!t.party.length;$('map-advance').textContent=t.phase==='resolving'?'Подтвердить завершение':'Готовность четверти';
+  renderTravelStatus(s);
   $('map-source').textContent=style==='reference'?'Запретные Земли · Tobias Tranell / Free League. '+(s.mapTerrain?.referenceCount?'Базовая местность по легенде карты; правки Мастера сохранены.':'Базовая разметка местности не установлена.'):style==='upload'?'Карта кампании. Сетка и местность задаются Мастером.':'Пергамент и цвета местности. Загрузите карту кампании в настройках.';$('map-layout').value=s.worldLayout||'legacy';$('map-layout-note').textContent=s.worldLayout==='ravenland'?'Гексы как на карте: A1, B2, A3. Базовая местность берётся из оригинального слоя карты; Мастер может изменить её.':'Пользовательская сетка 24×16. Для карты базового набора выберите сетку Запретных Земель.';
  }
  function inspect(p){selected=p;signature='';render();}

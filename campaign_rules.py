@@ -2,6 +2,7 @@
 import secrets
 from copy import deepcopy
 from terrain_map import cell_at
+from equipment_rules import owned, bonus as item_bonus, artifact as item_artifact, load as inventory_load
 
 TERRAINS = {
     'plain': ('Равнина', 2, -1, 1), 'forest': ('Лес', 2, 1, 1),
@@ -176,9 +177,14 @@ def apply(room,s,data):
         job=data.get('job'); role=data.get('role','none')
         if job not in JOBS or role not in ('none','lead','watch') or job!='hike' and role!='none': raise ValueError('Некорректное занятие или роль.')
         previous=t['plans'].get(cid,{})
+        gear_item=data.get('gearItem','') if gm else previous.get('gearItem','')
+        selected_item=next((i for i in owned(room,cid) if i['id']==gear_item),None)
+        if gear_item and (not selected_item or selected_item['bonus']>0 and item_bonus(selected_item)==0):raise ValueError('Выберите исправный предмет из инвентаря этого героя.')
         mod=integer(data.get('modifier',0),-10,10) if gm else previous.get('modifier',0)
         gear=integer(data.get('gear',0),0,10) if gm else previous.get('gear',0)
         t['plans'][cid]=dict(job=job,role=role,modifier=mod,gear=gear,scoutModifier=integer(data.get('scoutModifier',0),-10,10) if gm else previous.get('scoutModifier',0),endureModifier=integer(data.get('endureModifier',0),-10,10) if gm else previous.get('endureModifier',0),equipped=(data.get('equipped') is True if gm else previous.get('equipped',False)),darkvision=(data.get('darkvision') is True if gm else previous.get('darkvision',False)))
+        if gear_item:
+            t['plans'][cid]['gearItem']=gear_item;t['plans'][cid]['gear']=0
         if previous and previous!=t['plans'][cid]:
             t['gmReady']=False;t['routeVersion']+=1
         t['planVersions'][cid]=t['planVersions'].get(cid,0)+1
@@ -330,10 +336,24 @@ def advance(room,data,defer_clock=False):
         rank=c['sheet'].get('talents',{}).get(talent,0) if skill=='survive' else 0
         bonus=1 if rank>=1 else 0
         if skill=='scout' and c in watch and t.get('camp',{}).get('position')==t['position']:bonus+=t['camp'].get('watchBonus',0)
-        r=check(c,skill,mod+extra+bonus,(p['gear'] if skill=='survive' else 0) if gear is None else gear)
+        selected_item=next((i for i in owned(room,c['id']) if i['id']==p.get('gearItem')),None) if skill=='survive' and gear is None else None
+        if skill=='survive' and p.get('gearItem') and gear is None and not selected_item:raise ValueError('Снаряжение для заявки передано. Выберите предмет заново.')
+        equipment_bonus=item_bonus(selected_item) if selected_item else ((p['gear'] if skill=='survive' else 0) if gear is None else gear)
+        r=check(c,skill,mod+extra+bonus,equipment_bonus)
+        r['formula']=dict(base=len(r['base']),skill=c['sheet']['skills'].get(skill,0),conditions=mod,manual=extra,talent=bonus,gear=equipment_bonus,item=selected_item['name'] if selected_item else '')
+        r['artifacts']=[]
+        if selected_item and item_artifact(selected_item):
+            sides=item_artifact(selected_item);value=dice(1,sides)[0];r['artifacts'].append(dict(sides=sides,value=value))
         if rank>=3 and talent in ('pathfinder','quartermaster'):
-            artifact=dice(1,8)[0];r['artifact']=artifact;r['hits']=max(0,r['netHits']+(2 if artifact==8 else 1 if artifact>=6 else 0))
+            artifact=dice(1,8)[0];r['artifact']=artifact;r['artifacts'].append(dict(sides=8,value=artifact))
+        r['hits']=max(0,r['netHits']+sum(max(0,a['value']//2-2) if a['value']>=6 else 0 for a in r['artifacts']))
         rolls.append(r);return r
+    if hiking:
+        overloaded=[c for c in party if c.get('inventoryInitialized') and inventory_load(room,c)['overloaded']]
+        failed=[c for c in overloaded if not rolled(c,'endure',0,0)['hits']]
+        if failed:
+            hiking=False;path=[]
+            pending(room,'Перегруз: '+', '.join(c['name'] for c in failed),'Отряд остался на месте после неудачной Стойкости. Книга игрока, стр. 38: разгрузиться, остаться или продолжить с потерей 1 Ловкости. Иное решение и перенос подтверждает Мастер; повторно бросать за эту четверть не нужно.')
     if hiking and t['hikes']>=2:
         if t.get('mounted'):raise ValueError('Форсированный марш верхом требует проверки животного. Пока разрешается Мастером отдельно.')
         fails=[]
