@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {journalEntries,filterJournal} from '../public/journal.js';
+const s={me:{role:'player',owner:'one'},characters:[{id:'a',owner:'one'},{id:'b',owner:'two'}],log:[{name:'Мастер',text:'Старое сообщение'},{name:'Игрок',text:'Привал у переправы',kind:'chat',day:2,quarter:1}],journey:{history:[{day:2,quarter:0,rolls:[{character:'a',name:'Астрид',skill:'survive',base:[6],skillDice:[2],gear:[],hits:1},{character:'a',name:'Астрид',skill:'scout',hits:2},{character:'b',name:'Борин',skill:'survive',hits:3}]},{day:2,quarter:1,private:true,rolls:[{character:'a',name:'Секрет',skill:'survive',hits:4}]}]}};
+const entries=journalEntries(s);
+assert.equal(entries.length,3,'Only own public journey check joins the public log');
+assert.equal(filterJournal(entries,{kind:'check'})[0].name,'Астрид');
+assert.equal(filterJournal(entries,{day:'unknown'}).length,1,'Legacy messages are not assigned a fabricated date');
+assert.equal(filterJournal(entries,{day:'2',kind:'chat',author:'Игрок',search:'ПЕРЕПРАВЫ'}).length,1);
+assert.equal(filterJournal(entries,{day:'1'}).length,0);
+assert.equal(filterJournal(entries,{search:'no match'}).length,0);
+s.me.role='gm';assert.equal(journalEntries(s).filter(e=>e.kind==='check').length,4);
+assert.equal(journalEntries(s).filter(e=>e.private).length,1);
+console.log('Journal: combined filters, legacy dates, own checks, hidden scouting and private history passed.');

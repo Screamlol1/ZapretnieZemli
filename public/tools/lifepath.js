@@ -1,0 +1,81 @@
+import {LIFEPATH_DATA} from './lifepath-data.js';
+import {blank,AGES,ATTRS,SKILLS,PROFESSIONS,GENERAL,ITEMS,PRICES,money} from './rules.js';
+export const ORIGINS=LIFEPATH_DATA.origins;
+const HOME={
+ alder:['Опушка Аринского леса','Равнина Мольдена','Равнина Мольдена','Берега озера Скарны','Поля Маргельды','Выжженная равнина Харга'],
+ aslene:['Поля Маргельды','Поля Маргельды','Степи Затопья','Степи Затопья','Равнина Мольдена','Глушь Пелены'],
+ wanderer:['Поля Маргельды','Берега залива Гнева','Равнина Мольдена','Равнина Мольдена','Пастбища Вивенда','Берега озера Скарны'],
+ halfelf:['Поля Маргельды','Равнина Мольдена','Пастбища Вивенда','Опушка Влажнолесья','Опушка Аринского леса','Выжженная равнина Харга'],
+ halfling:['Луга Белифара','Луга Белифара','Луга Белифара','Луга Белифара','Поля Маргельды','Равнина Мольдена'],
+ goblin:['Сумрак Клыколесья','Сумрак Клыколесья','Сумрак Клыколесья','Перелески Пелены','Перелески Пелены','Дебри Рощи Гемы'],
+ orc:['Дебри Рощи Гемы','Дебри Рощи Гемы','Чаща Аринского леса','Чаща Аринского леса','Чаща Аринского леса','Выжженная равнина Харга'],
+ wolfkin:['Сумрак Клыколесья','Сумрак Клыколесья','Дебри Рощи Гемы','Дебри Рощи Гемы','Чаща Аринского леса','Перелески Пелены'],
+ dwarf:['Горы возле Мольдены','Скалы Дальнего Вивенда','Скалы Дальнего Вивенда','Вершины северного Фойленмарка','Вершины северного Фойленмарка','Северные горы Бельдеранда'],
+ elf:['Чаща Влажнолесья','Чаща Влажнолесья','Опушка Влажнолесья','Жилища Вивенда','Жилища Дальнего Вивенда','Остров Девы']
+};
+const KIN_RANGES=[[22,'alder'],[31,'aslene'],[34,'wanderer'],[41,'halfelf'],[44,'halfling'],[52,'goblin'],[56,'orc'],[62,'wolfkin'],[64,'dwarf'],[66,'elf']];
+const PROF_RANGES=[[14,'minstrel'],[24,'fighter'],[32,'rogue'],[36,'rider'],[44,'druid'],[53,'sorcerer'],[62,'hunter'],[66,'peddler']];
+const PATHS={minstrel:['warcry','hymn','song'],fighter:['enemy','blade','shield'],rogue:['face','killer','poison'],rider:['companion','plains','knight'],druid:['shapes','healing','sight'],hunter:['beast','forest','arrow'],peddler:['treasure','things','words'],sorcerer:['signs','stone','blood','death']};
+const event=(title,skills,talent,gear=[],extras={})=>({title,skills,talent,gear,...extras});
+export const LIFE_EVENTS={
+ minstrel:[event('Популярная баллада',{influence:1,perform:1},'lucky',['parchment','ink']),event('Менестрель',{perform:2},'tongue',['lute']),event('Вдохновляющее путешествие',{survive:1,lore:1},'fearless',['smalltent','blanket','cauldron']),event('Певец знати',{insight:1,perform:1},'sixthsense',['elegantclothes','dagger']),event('Служба в отряде',{melee:1,survive:1},'defender',['leatherarmor','openhelm','shortbow'],{arrows:8}),event('Дуэль с соперником',{melee:1,heal:1},'sword',['shortsword'])],
+ fighter:[event('Плен',{might:1,survive:1},'pain',['studded','shortsword']),event('Кровавая битва',{melee:2},'sword',['longsword']),event('Долгий поход',{survive:1,heal:1},'packrat',['smalltent','cauldron','handaxe']),event('Жизнь в седле',{melee:1,animal:1},'horsefight',['horse']),event('Дозорный',{shoot:1,scout:1},'defender',['lightcrossbow'],{arrows:12}),event('Командир',{lore:1,influence:1},'coldblood',['chainmail','closedhelm','broadsword'])],
+ rogue:[event('Непродуманная кража',{sleight:1,move:1},'lightning',['lockpicks','throwingknife']),event('Тюрьма',{endure:1,survive:1},'pain',['dagger']),event('Успешное ограбление',{sleight:1,stealth:1},'lucky',[],{treasure:33}),event('Гильдия воров',{insight:1,scout:1},'sixthsense',['leatherarmor','dagger']),event('Служба в отряде',{shoot:1,scout:1},'pathfinder',['shortbow'],{arrows:12}),event('Банда грабителей',{melee:1,survive:1},'lightning',['shortsword'])],
+ rider:[event('Служба в отряде',{melee:1,shoot:1},'horsefight',['studded','largeshield','shortspear']),event('Конные соревнования',{move:1,animal:1},'fastfoot',['cloak','dagger']),event('Путешествия',{survive:1,scout:1},'herbalist',['smalltent','cauldron','blanket']),event('Охрана каравана',{melee:1,scout:1},'pathfinder',['longspear']),event('Пастух',{move:1,animal:1},'quartermaster',['lantern','waterskin','knife']),event('Жизнь в степи',{shoot:1,animal:1},'tanner',['shortbow'],{arrows:12})],
+ druid:[event('Паломничество',{survive:1,lore:1},'wanderer',['staff','backpack','waterskin']),event('Бегство',{melee:1,move:1},'sixthsense',['sleepingpoison','dagger'],{poisonDie:3}),event('Неожиданная находка',{craft:1,survive:1},'lucky',[],{treasure:32}),event('Обучение у мудреца',{lore:1,heal:1},'tongue',['parchment','ink']),event('Защита леса',{shoot:1,animal:1},'herbalist',['shortbow'],{arrows:12}),event('Жизнь отшельника',{endure:1,survive:1},'pathfinder',['staff','smalltent','cauldron'])],
+ sorcerer:[event('Неудачный эксперимент',{lore:1,heal:1},'poisoner',['staff','hallucinogenicpoison'],{poisonDie:6}),event('Уединённые исследования',{survive:1,lore:1},'quartermaster',['smalltent','cauldron','knife']),event('Таинственный артефакт',{craft:1,insight:1},'incorruptible',[],{treasure:32}),event('Придворный маг',{insight:1,influence:1},'tongue',['staff','wine','cloak']),event('Фокусник',{influence:2},'lightning',['elegantclothes','crystal']),event('Служба в отряде',{melee:1,heal:1},'defender',['studded','closedhelm','shortsword'])],
+ hunter:[event('Охота на зверя',{melee:1,scout:1},'spear',['shortspear','beartrap']),event('Жизнь в лесу',{shoot:1,survive:1},'masterhunt',['throwingspear','dagger']),event('Приручённый скакун',{animal:2},'horsefight',['staff','horse']),event('Победа на турнире',{shoot:2},'sharp',['longbow'],{arrows:12}),event('Проводник',{scout:2},'pathfinder',['smalltent','cauldron','knife']),event('Должность егеря',{shoot:1,insight:1},'sixthsense',['tailoredcloak','fur','shortbow'])],
+ peddler:[event('Караван',{influence:1,animal:1},'wanderer',['donkey','knife']),event('Местная торговля',{influence:1,insight:1},'lucky',['cart','staff']),event('Обман',{insight:2},'incorruptible',['smalltent','blanket','cauldron']),event('Приключение',{melee:1,lore:1},'fearless',['chainmail','shortsword']),event('Контрабанда',{insight:1,scout:1},'sixthsense',['spyglass','dagger']),event('Хозяин лавки',{influence:2},'tongue',['scales','parchment','ink'])]
+};
+const MEETINGS=['Вместе сопровождали караван.','Помогли друг другу отбиться от засады.','Бежали из заточения вместе.','Познакомились за общей выпивкой.','Объединились ради поисков артефакта.','Один спас другого от опасности.','Бывшие соперники объединились против общих врагов.','Дружили с детства.','Вас связывает общий долг.','Сражались в одной кровавой битве.','Вместе скрывались от Ржавых братьев.','Делили добычу из подземелья.','Переждали бурю у одного костра.','Вместе бежали из рабства.','Бежали из плена ящеролюдов.','Нанялись охранять одного заказчика.','Судебный поединок положил начало дружбе.','Пережили кораблекрушение и спаслись с острова.'];
+const NAMES=['Эйра','Торен','Мира','Равен','Ильва','Арн','Вейла','Орм','Сив','Варг','Нела','Дарен'];
+export function randomDie(n){const r=new Uint32Array(1),limit=Math.floor(2**32/n)*n;do{crypto.getRandomValues(r);}while(r[0]>=limit);return r[0]%n+1;}
+const d66=d=>10*d(6)+d(6);
+const range=(n,ranges)=>ranges.find(([max])=>n<=max)[1];
+const valid66=n=>Number.isInteger(n)&&n>=11&&n<=66&&n%10>=1&&n%10<=6;
+export function generateLifepath(options={},d=randomDie){
+ const kinRoll=d66(d),professionRoll=d66(d),origin=options.origin&&options.origin!=='random'?options.origin:range(kinRoll,KIN_RANGES),profession=options.profession&&options.profession!=='random'?options.profession:range(professionRoll,PROF_RANGES);
+ if(!ORIGINS[origin]||!LIFE_EVENTS[profession])throw Error('Неизвестный вариант предыстории.');
+ const age=origin==='elf'?'adult':options.age&&options.age!=='random'?options.age:['young','adult','old'][d(3)-1];if(!AGES[age])throw Error('Неизвестный возраст.');
+ const homeRoll=d(6),childRoll=d(6),pathRoll=d(profession==='sorcerer'?8:6),events=[];
+ for(let i=0;i<AGES[age].talents;i++){const roll=d(6),ev=LIFE_EVENTS[profession][roll-1];events.push({roll,doses:ev.poisonDie?d(ev.poisonDie):0});}
+ const attrs={...LIFEPATH_DATA.children[origin][childRoll-1].attrs},losses=[];for(let i=0;i<AGES[age].talents-1;i++){const choices=Object.keys(attrs).filter(k=>attrs[k]>1),id=choices[d(choices.length)-1];attrs[id]--;losses.push(id);}
+ const trace={origin,profession,age,kinRoll,professionRoll,homeRoll,childRoll,pathRoll,events,losses,meetingRoll:d66(d),coins:d(PROFESSIONS[profession].die),overflow:[],transfer:null};
+ let s=replayLifepath(trace);for(const [id,n] of Object.entries(s.skills)){for(let i=5;i<n;i++){const choices=SKILLS.map(x=>x[0]).filter(k=>s.skills[k]<5),target=choices[d(choices.length)-1];trace.overflow.push({from:id,to:target});s.skills[id]--;s.skills[target]++;}}
+ s=replayLifepath(trace);s.name=NAMES[d(NAMES.length)-1];s.appearance='Внешность определите сами.';s.relationships=MEETINGS[meetingIndex(trace.meetingRoll)];s.notes=lifepathSummary(s);return s;
+}
+function meetingIndex(n){const digits=Math.floor(n/10)-1;return digits*3+Math.floor((n%10-1)/2);}
+export function growLifepath(current,d=randomDie){
+ const old=validateLifepath(current);if(old.kin==='elf'||old.age==='old')throw Error('Этот персонаж уже достиг предельного стартового возраста.');
+ const t=structuredClone(old.lifepath),previousCount=t.events.length;
+ t.overflow=t.overflow.map(x=>({...x,stage:x.stage||previousCount}));
+ const roll=d(6),e=LIFE_EVENTS[old.profession][roll-1];t.events.push({roll,doses:e.poisonDie?d(e.poisonDie):0});t.age=old.age==='young'?'adult':'old';
+ const beforeTransfer=replayLifepath({...t,transfer:null}),choices=Object.keys(ATTRS).filter(id=>old.attrs[id]>1&&beforeTransfer.attrs[id]>1);
+ const loss=choices[d(choices.length)-1];t.losses.push(loss);
+ let next=replayLifepath(t);for(const [id,n] of Object.entries(next.skills))for(let i=5;i<n;i++){const targets=SKILLS.map(x=>x[0]).filter(k=>next.skills[k]<5),to=targets[d(targets.length)-1];t.overflow.push({from:id,to,stage:t.events.length});next.skills[id]--;next.skills[to]++;}
+ next=replayLifepath(t);for(const k of ['name','appearance','pride','secret','relationships'])next[k]=old[k];next.purchases=[...old.purchases];
+ if(old.talentsEdited){next.talents={...old.talents};next.talents[e.talent]=(next.talents[e.talent]||0)+1;next.talentsEdited=true;}
+ next.notes=old.notes===lifepathSummary(old)?lifepathSummary(next):old.notes+`\nВзросление: ${AGES[next.age].name}; D6 → ${roll}, ${e.title}; ${ATTRS[loss]} −1. См. журнал предыстории.`;
+ return validateLifepath(next);
+}
+export function replayLifepath(t){
+ const s=blank();s.creation='lifepath';s.lifepath=structuredClone(t);s.kin=['alder','aslene','wanderer'].includes(t.origin)?'human':t.origin;s.profession=t.profession;s.age=t.age;s.attrs={...LIFEPATH_DATA.children[t.origin][t.childRoll-1].attrs};s.skills=Object.fromEntries(SKILLS.map(([id])=>[id,0]));Object.assign(s.skills,LIFEPATH_DATA.children[t.origin][t.childRoll-1].skills);s.gear=t.profession==='rider'?['horse']:[];s.trade=[];s.talents={};s.path=PATHS[t.profession][Math.floor((t.pathRoll-1)/2)];s.coins=t.coins;s.lifeArrows=0;s.lifePending=[];
+ for(const [i,{roll,doses}] of t.events.entries()){const e=LIFE_EVENTS[t.profession][roll-1];for(const [id,n] of Object.entries(e.skills))s.skills[id]+=n;s.talents[e.talent]=(s.talents[e.talent]||0)+1;s.gear.push(...e.gear);s.lifeArrows=Math.max(s.lifeArrows,e.arrows||0);if(e.treasure)s.lifePending.push(`Событие ${i+1}: ведущий определяет ценную находку по своей таблице (результат не ниже ${e.treasure}).`);if(e.poisonDie)s.lifePending.push(`Событие ${i+1}: ${doses} доз яда; силу определяет ведущий.`);}
+ for(const id of t.losses)s.attrs[id]--;for(const {from,to} of t.overflow){s.skills[from]--;s.skills[to]++;}
+ if(t.transfer){s.attrs[t.transfer.from]--;s.attrs[t.transfer.to]++;}return s;
+}
+export function lifepathSummary(s){const t=s.lifepath,child=LIFEPATH_DATA.children[t.origin][t.childRoll-1];return [...(s.talentsEdited?['Общие достоинства изменены вручную; исходные результаты событий приведены ниже.']:[]),`Предыстория — «Легенды, герои и чудовища», стр. 2–26.`,`Происхождение: ${ORIGINS[t.origin]} (D66: ${t.kinRoll}; при выборе вручную бросок не используется).`,`Родина: ${HOME[t.origin][t.homeRoll-1]} (D6: ${t.homeRoll}).`,`Детство: ${child.title} (D6: ${t.childRoll}).`,`Профессия: ${PROFESSIONS[t.profession].name} (D66: ${t.professionRoll}; при выборе вручную бросок не используется).`,`Путь: D${t.profession==='sorcerer'?8:6} → ${t.pathRoll}.`,...t.events.map(({roll,doses},i)=>{const e=LIFE_EVENTS[t.profession][roll-1];return `Событие ${i+1}: ${e.title} (D6: ${roll}). ${Object.entries(e.skills).map(([id,n])=>`${SKILLS.find(x=>x[0]===id)[1]} +${n}`).join(', ')}; ${GENERAL.find(x=>x.id===e.talent).name}${doses?`; доз яда: ${doses}`:''}.`;}),...t.losses.map(id=>`Возраст: ${ATTRS[id]} −1.`),t.transfer?`Перераспределение: ${ATTRS[t.transfer.from]} −1, ${ATTRS[t.transfer.to]} +1.`:'Необязательное перераспределение 1 пункта не применено.',`Знакомство: D66 → ${t.meetingRoll}. ${MEETINGS[meetingIndex(t.meetingRoll)]} Согласуйте с группой; один игрок пропускает эту таблицу.`,...(t.overflow.length?['Повторные события дали навык выше 5. Избыток перенесён случайно в другие навыки — это толкование конструктора, согласуйте его с ведущим.']:[]),...s.lifePending].join('\n');}
+export function validateLifepath(raw){
+ const t=raw.lifepath,fail=()=>{throw Error('Повреждённая предыстория персонажа.');},int=(n,a,b)=>Number.isInteger(n)&&n>=a&&n<=b;
+ if(!t||!ORIGINS[t.origin]||!LIFE_EVENTS[t.profession]||!AGES[t.age]||t.origin==='elf'&&t.age!=='adult'||!valid66(t.kinRoll)||!valid66(t.professionRoll)||!valid66(t.meetingRoll)||!int(t.homeRoll,1,6)||!int(t.childRoll,1,6)||!int(t.pathRoll,1,t.profession==='sorcerer'?8:6)||!int(t.coins,1,PROFESSIONS[t.profession].die))fail();
+ if(!Array.isArray(t.events)||t.events.length!==AGES[t.age].talents||!Array.isArray(t.losses)||t.losses.length!==AGES[t.age].talents-1||t.losses.some(id=>!Object.hasOwn(ATTRS,id))||!Array.isArray(t.overflow)||t.overflow.length>6)fail();
+ for(const e of t.events){if(!int(e.roll,1,6))fail();const die=LIFE_EVENTS[t.profession][e.roll-1].poisonDie;if(!int(e.doses,die?1:0,die||0))fail();}
+ for(const x of t.overflow)if(!SKILLS.some(v=>v[0]===x.from)||!SKILLS.some(v=>v[0]===x.to)||x.from===x.to)fail();
+ if(t.transfer&&(!Object.hasOwn(ATTRS,t.transfer.from)||!Object.hasOwn(ATTRS,t.transfer.to)||t.transfer.from===t.transfer.to))fail();
+ const applied=[];let lastStage=1;for(const x of t.overflow){const stage=x.stage??t.events.length;if(!int(stage,1,t.events.length)||stage<lastStage)fail();lastStage=stage;const unshifted=replayLifepath({...t,events:t.events.slice(0,stage),overflow:applied,transfer:null});if(unshifted.skills[x.from]<=5||unshifted.skills[x.to]>=5)fail();applied.push(x);}
+ const s=replayLifepath(t);for(const [id,n] of Object.entries(s.attrs))if(!int(n,1,6)||n===6&&id!==PROFESSIONS[s.profession].key&&id!==({human:'emp',elf:'agi',halfelf:'wit',dwarf:'str',halfling:'emp',wolfkin:'agi',orc:'str',goblin:'agi'}[s.kin]))fail();for(const n of Object.values(s.skills))if(!int(n,0,5))fail();
+ for(const k of ['kin','profession','age','path','pathRank','coins'])if(raw[k]!==s[k])fail();for(const k of ['attrs','skills',...(raw.talentsEdited===true?[]:['talents'])])if(JSON.stringify(Object.entries(raw[k]||{}).sort())!==JSON.stringify(Object.entries(s[k]).sort()))fail();for(const k of ['gear','trade'])if(JSON.stringify(raw[k])!==JSON.stringify(s[k]))fail();
+ if(raw.talentsEdited===true){if(!raw.talents||typeof raw.talents!=='object'||Array.isArray(raw.talents)||Object.entries(raw.talents).some(([id,n])=>!GENERAL.some(g=>g.id===id&&!g.expansion)||!int(n,1,3))||Object.values(raw.talents).reduce((a,b)=>a+b,0)>AGES[s.age].talents)fail();s.talents={...raw.talents};s.talentsEdited=true;}
+ if(raw.reforged!==undefined)fail();if(raw.version!==1||raw.game!=='forbidden-lands'||raw.expansion!=='core')fail();for(const k of ['name','appearance','pride','secret','relationships','notes']){if(typeof raw[k]!=='string'||raw[k].length>6000)fail();s[k]=raw[k];}
+ if(!Array.isArray(raw.purchases)||raw.purchases.length>100||raw.purchases.some(id=>!Object.hasOwn(PRICES,id)))fail();s.purchases=[...raw.purchases];if(money(s).remaining<0)fail();return s;
+}
