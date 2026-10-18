@@ -22,6 +22,8 @@ from equipment_rules import combat_gear, sync_wear, load as inventory_load
 from skill_checks import apply as character_check
 from save_points import init as init_saves, apply as checkpoint_action
 from workshop import apply as workshop_action, entry as workshop_entry
+from accounts import Accounts, COOKIE, LIFETIME
+from http.cookies import SimpleCookie
 
 ROOT = Path(__file__).parent
 LOCK = threading.RLock()
@@ -54,10 +56,12 @@ class Game:
         self.db.execute('CREATE TABLE IF NOT EXISTS rooms (id TEXT PRIMARY KEY, data TEXT)')
         init_saves(self.db)
         self.sessions = {}
+        self.accounts = Accounts(self)
 
     def save(self, room):
         room['savedAt']=time.time()
         self.db.execute('INSERT OR REPLACE INTO rooms VALUES (?,?)', (room['id'], json.dumps({k:v for k,v in room.items() if not k.startswith('_')})))
+        self.accounts.sync(room)
         self.db.commit()
 
     def room(self, code):
@@ -69,7 +73,7 @@ class Game:
         if room.get('worldLayout')=='ravenland' and art.get('style','reference')!='upload':room['_worldBase']=self.reference_terrain
         return room
 
-    def login(self, data, create=False):
+    def login(self, data, create=False, account=None):
         name = str(data.get('name', '')).strip()[:60]
         if not name:
             raise ValueError('Укажите имя участника.')
@@ -94,6 +98,12 @@ class Game:
         identity = room.get('identities',{}).get(resume)
         if identity and identity['role']!=role:
             identity=None
+        account_id = account['id'] if account else None
+        if identity and identity.get('account') and identity['account'] != account_id:
+            raise PermissionError('Этот участник привязан к аккаунту. Войдите в его личный кабинет.')
+        if role == 'gm' and room.get('gmAccount') and room['gmAccount'] != account_id:
+            raise PermissionError('Кампания принадлежит другому аккаунту Мастера.')
+        if account and role == 'gm': room['gmAccount'] = account_id
         active = [s for s in self.sessions.values() if s['room'] == room['id'] and time.time()-s['seen'] < 45
                   and (not identity or s['owner']!=identity['owner'])]
         if role == 'gm' and any(s['role'] == 'gm' for s in active):
@@ -107,11 +117,14 @@ class Game:
         if len(room.get('identities',{}))>=500 and not identity:
             raise ValueError('Предел участников кампании достигнут.')
         room.setdefault('identities',{})[resume]=dict(owner=owner,role=role,name=name)
+        if account: room['identities'][resume]['account'] = account_id
         self.save(room)
         for t in [t for t,x in self.sessions.items() if x['room']==room['id'] and x['owner']==owner]:
             del self.sessions[t]
         self.sessions[token] = dict(room=room['id'], role=role, name=name, owner=owner, resume=resume, seen=time.time())
+        if account: self.sessions[token].update(account=account_id, accountSession=account['session'])
         return dict(token=token, resume=resume, code=room['id'], role=role,
+                    account=bool(account),
                     gmKey=room['gmKey'] if role=='gm' else None,
                     playerKey=room['playerKey'] if role=='gm' else None)
 
@@ -119,15 +132,17 @@ class Game:
         s = self.sessions.get(token)
         if not s or time.time()-s['seen']>=45:
             raise PermissionError('Войдите в кампанию.')
+        if s.get('account') and not self.accounts.valid_session(s['accountSession'], s['account']):
+            raise PermissionError('Войдите в личный кабинет.')
         s['seen'] = time.time()
         return s
 
-    def reconnect(self, data):
+    def reconnect(self, data, account=None):
         room=self.room(str(data.get('code','')).upper())
         identity=room.get('identities',{}).get(str(data.get('resume','')))
         if not identity:raise PermissionError('Не удалось восстановить вход. Используйте приглашение.')
         return self.login(dict(code=room['id'],resume=data['resume'],name=identity['name'],
-                               key=room['gmKey'] if identity['role']=='gm' else room['playerKey']))
+                               key=room['gmKey'] if identity['role']=='gm' else room['playerKey']), account=account)
 
     def view(self, s):
         room = self.room(s['room'])
@@ -142,6 +157,7 @@ class Game:
             complete=bool(t['completed'].get(owner))) for owner in participants(room)] if t['party'] else []
         room.pop('gmKey'); room.pop('playerKey')
         room.pop('identities',None)
+        room.pop('gmAccount',None)
         if s['role']=='gm':
             room['owners']=[dict(owner=x['owner'],name=x.get('name','Участник'),role=x['role']) for x in identities.values()]
         room.pop('combatOwners',None)
@@ -483,12 +499,12 @@ class Game:
         return json.loads(result.stdout)
 
 def make_handler(game,public_test=False,max_rooms=50,limits=None):
-    limiter=limits if limits is not None else RequestLimits() if public_test else None
+    limiter=limits if limits is not None else RequestLimits()
     class Handler(BaseHTTPRequestHandler):
         def setup(self):
             super().setup();self.connection.settimeout(15)
 
-        def respond(self, status, body, retry_after=None, conditional=False):
+        def respond(self, status, body, retry_after=None, conditional=False, cookie=None):
             raw=json.dumps(body,ensure_ascii=False,separators=(',',':')).encode()
             # Hash the authenticated view, including presence and permissions.
             etag='W/"'+hashlib.sha256(raw).hexdigest()+'"' if conditional else None
@@ -512,7 +528,19 @@ def make_handler(game,public_test=False,max_rooms=50,limits=None):
             if compressed:self.send_header('Content-Encoding','gzip')
             self.send_header('X-Content-Type-Options','nosniff');self.send_header('Referrer-Policy','no-referrer')
             if retry_after:self.send_header('Retry-After',str(retry_after))
+            if cookie is not None:self.send_header('Set-Cookie',cookie)
             self.end_headers(); self.wfile.write(raw)
+
+        def account_token(self):
+            cookies=SimpleCookie()
+            try:cookies.load(self.headers.get('Cookie',''))
+            except Exception:return ''
+            return cookies[COOKIE].value if COOKIE in cookies else ''
+
+        def account_cookie(self, token):
+            host=urlparse('http://'+self.headers.get('Host','')).hostname
+            secure='' if host in ('127.0.0.1','localhost','::1') else '; Secure'
+            return f'{COOKIE}={token}; Path=/api; HttpOnly; SameSite=Strict; Max-Age={LIFETIME if token else 0}'+secure
 
         def limited(self,group):
             if limiter is None:return False
@@ -525,8 +553,9 @@ def make_handler(game,public_test=False,max_rooms=50,limits=None):
             return bool(retry)
 
         def do_POST(self):
-            if self.limited('auth' if self.path in ('/api/create','/api/join','/api/resume') else 'write'):return
+            if self.limited('auth' if self.path in ('/api/create','/api/join','/api/resume','/api/account/register','/api/account/login','/api/account/recover','/api/account/password') else 'write'):return
             try:
+                cookie=None
                 length=int(self.headers.get('Content-Length','0'))
                 if not 0<length<=(5500000 if self.path=='/api/map-image' else 150000): raise ValueError('Некорректный размер запроса.')
                 # JSON + same-origin only: browsers cannot submit cross-origin forms to the API.
@@ -534,15 +563,32 @@ def make_handler(game,public_test=False,max_rooms=50,limits=None):
                     raise ValueError('Ожидается application/json.')
                 origin=self.headers.get('Origin')
                 if origin and urlparse(origin).netloc!=self.headers.get('Host'): raise PermissionError('Другой origin.')
+                if self.headers.get('Sec-Fetch-Site')=='cross-site':raise PermissionError('Другой origin.')
                 data=json.loads(self.rfile.read(length))
                 if not isinstance(data,dict): raise ValueError('Ожидается объект JSON.')
                 with LOCK:
-                    if self.path in ('/api/create','/api/join'):
+                    if self.path in ('/api/account/register','/api/account/login','/api/account/recover'):
+                        token,result=game.accounts.auth(self.path.rsplit('/',1)[1],data,self.account_token())
+                        cookie=self.account_cookie(token)
+                    elif self.path=='/api/account/logout':
+                        game.accounts.logout(self.account_token());result={'ok':True};cookie=self.account_cookie('')
+                    elif self.path.startswith('/api/account/'):
+                        account=game.accounts.authenticate(self.account_token())
+                        if self.path=='/api/account/password':result=game.accounts.password(account,data)
+                        elif self.path=='/api/account/character':result=game.accounts.character(account,data)
+                        elif self.path in ('/api/account/create','/api/account/connect'):
+                            create=self.path=='/api/account/create'
+                            if public_test and create and game.db.execute('SELECT COUNT(*) FROM rooms').fetchone()[0]>=max_rooms:
+                                raise ValueError('Тестовый сервер достиг лимита кампаний. Обратитесь к владельцу сервера.')
+                            result=game.accounts.campaign(account,data,create)
+                        else:raise ValueError('Неизвестное действие кабинета.')
+                    elif self.path in ('/api/create','/api/join'):
                         if public_test and self.path=='/api/create' and game.db.execute('SELECT COUNT(*) FROM rooms').fetchone()[0]>=max_rooms:
                             raise ValueError('Тестовый сервер достиг лимита кампаний. Обратитесь к владельцу сервера.')
                         result=game.login(data,self.path=='/api/create')
                     elif self.path=='/api/resume':
-                        result=game.reconnect(data)
+                        account=game.accounts.authenticate(self.account_token()) if self.account_token() else None
+                        result=game.accounts.campaign(account,data) if account else game.reconnect(data)
                     elif self.path=='/api/action':
                         result=game.action(game.session(self.headers.get('Authorization','')),data)
                     elif self.path=='/api/saves':
@@ -554,12 +600,18 @@ def make_handler(game,public_test=False,max_rooms=50,limits=None):
                         result={'ok':True}
                     else:
                         self.respond(404,{'error':'Не найдено'}); return
-                self.respond(200,result)
+                self.respond(200,result,cookie=cookie)
             except PermissionError as e: self.respond(403,{'error':str(e)})
             except (ValueError,TypeError,KeyError) as e: self.respond(400,{'error':str(e)})
 
         def do_GET(self):
             if self.limited('read'):return
+            if urlparse(self.path).path=='/api/account':
+                try:
+                    with LOCK:result=game.accounts.dashboard(game.accounts.authenticate(self.account_token()))
+                    self.respond(200,result)
+                except PermissionError as e:self.respond(403,{'error':str(e)})
+                return
             if urlparse(self.path).path=='/api/health':
                 self.respond(200,{'ok':True,'publicTest':public_test});return
             if urlparse(self.path).path=='/api/map-image':
@@ -578,7 +630,7 @@ def make_handler(game,public_test=False,max_rooms=50,limits=None):
                 except PermissionError as e: self.respond(403,{'error':str(e)})
                 return
             target=(ROOT/'public'/urlparse(self.path).path.lstrip('/')).resolve()
-            if urlparse(self.path).path=='/': target=ROOT/'public/index.html'
+            if urlparse(self.path).path=='/': target=ROOT/'public/account.html'
             if not target.is_relative_to((ROOT/'public').resolve()) or not target.is_file():
                 self.respond(404,{'error':'Не найдено'}); return
             raw=target.read_bytes()

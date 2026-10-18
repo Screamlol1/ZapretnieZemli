@@ -24,7 +24,7 @@ def allowed(room,s,scope,subject):
 
 def capture(room,scope,c=None):
     if scope=='campaign':
-        return {k:copy.deepcopy(v) for k,v in room.items() if not k.startswith('_') and k not in ('gmKey','playerKey','identities')}
+        return {k:copy.deepcopy(v) for k,v in room.items() if not k.startswith('_') and k not in ('gmKey','playerKey','identities','gmAccount')}
     items=[{k:copy.deepcopy(v) for k,v in i.items() if k not in ('gmNote','maintenanceNote')} for i in room.get('items',[]) if i['location']==dict(kind='character',id=c['id'])]
     return dict(character=copy.deepcopy(c),items=items,
                 journey=dict(day=room.get('journey',{}).get('day',1),quarter=room.get('journey',{}).get('quarter',0)),
@@ -60,6 +60,7 @@ def apply(game,s,data):
     if data.get('revision')!=room['revision']:raise ValueError('Кампания уже изменилась. Проверьте новое состояние перед восстановлением.')
     restored=copy.deepcopy(document['state'])
     for key in ('id','gmKey','playerKey','identities'):restored[key]=room[key]
+    if room.get('gmAccount'):restored['gmAccount']=room['gmAccount']
     for key in ('revision','combatRevision'):restored[key]=max(room.get(key,0),restored.get(key,0))+1
     for kind,field in (('items','version'),('characters','equipmentVersion'),('workshop','version')):
         current={x['id']:x.get(field,0) for x in room.get(kind,[])}
@@ -75,4 +76,5 @@ def apply(game,s,data):
     with game.db:
         insert(game.db,room,'campaign','','Перед восстановлением',capture(room,'campaign'))
         game.db.execute('INSERT OR REPLACE INTO rooms VALUES (?,?)',(room['id'],json.dumps(restored)))
+        game.accounts.sync(restored)
     return dict(state=game.view(s))
