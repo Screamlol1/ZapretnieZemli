@@ -3,9 +3,8 @@ import hashlib
 import json
 import re
 import secrets
-import subprocess
 import time
-from pathlib import Path
+from sheet_validation import validate_sheet
 
 COOKIE = 'zz_account'
 LIFETIME = 30 * 86400
@@ -45,22 +44,40 @@ class Accounts:
           updated REAL NOT NULL, data TEXT NOT NULL, room TEXT, character TEXT,
           UNIQUE(account, room, character));
         ''')
+        for table, additions in {
+            'accounts': {'admin':'INTEGER NOT NULL DEFAULT 0', 'disabled':'INTEGER NOT NULL DEFAULT 0'},
+            'account_sessions': {'actor':'TEXT', 'parent':'TEXT'},
+        }.items():
+            columns={r[1] for r in self.db.execute(f'PRAGMA table_info({table})')}
+            for name, declaration in additions.items():
+                if name not in columns:self.db.execute(f'ALTER TABLE {table} ADD COLUMN {name} {declaration}')
+        self.db.executescript('''
+        CREATE INDEX IF NOT EXISTS account_characters_room ON account_characters(room);
+        CREATE INDEX IF NOT EXISTS account_sessions_account ON account_sessions(account);
+        CREATE INDEX IF NOT EXISTS account_memberships_room ON account_memberships(room);
+        CREATE TABLE IF NOT EXISTS admin_audit (
+          id INTEGER PRIMARY KEY AUTOINCREMENT, created REAL NOT NULL,
+          actor TEXT NOT NULL, target TEXT, action TEXT NOT NULL, reason TEXT NOT NULL, details TEXT NOT NULL);
+        ''')
 
     def authenticate(self, token):
-        row = self.db.execute('SELECT a.id,a.login,a.name,s.token FROM account_sessions s JOIN accounts a ON a.id=s.account WHERE s.token=? AND s.expires>?', (digest(token), time.time())).fetchone()
-        if not row:
+        row = self.db.execute('SELECT a.id,a.login,a.name,s.token,a.admin,s.actor,s.parent,s.expires FROM account_sessions s JOIN accounts a ON a.id=s.account WHERE s.token=? AND s.expires>? AND a.disabled=0', (digest(token), time.time())).fetchone()
+        if not row or not self.valid_session(row[3], row[0]):
             raise PermissionError('Войдите в личный кабинет.')
-        return dict(id=row[0], login=row[1], name=row[2], session=row[3])
+        return dict(id=row[0], login=row[1], name=row[2], session=row[3], admin=bool(row[4]) and not row[5], actor=row[5], parent=row[6], expires=row[7])
 
     def valid_session(self, hashed, account):
-        return bool(self.db.execute('SELECT 1 FROM account_sessions WHERE token=? AND account=? AND expires>?', (hashed, account, time.time())).fetchone())
+        row=self.db.execute('SELECT s.actor,s.parent FROM account_sessions s JOIN accounts a ON a.id=s.account WHERE s.token=? AND s.account=? AND s.expires>? AND a.disabled=0', (hashed, account, time.time())).fetchone()
+        if not row:return False
+        if not row[0]:return True
+        return bool(self.db.execute('SELECT 1 FROM account_sessions s JOIN accounts a ON a.id=s.account WHERE s.token=? AND s.account=? AND s.actor IS NULL AND s.expires>? AND a.admin=1 AND a.disabled=0', (row[1],row[0],time.time())).fetchone())
 
     def auth(self, mode, data, old_token=''):
         login = str(data.get('login', '')).strip().lower()
         if not re.fullmatch(r'[a-z0-9_\-.]{3,32}', login):
             raise ValueError('Логин: 3–32 латинские буквы, цифры, точка, дефис или подчёркивание.')
         now = time.time()
-        row = self.db.execute('SELECT id,salt,password,recovery,failures,blocked FROM accounts WHERE login=?', (login,)).fetchone()
+        row = self.db.execute('SELECT id,salt,password,recovery,failures,blocked,disabled FROM accounts WHERE login=?', (login,)).fetchone()
         recovery = None
         if mode == 'register':
             password = password_value(data.get('password'))
@@ -70,6 +87,7 @@ class Accounts:
             aid, salt, recovery = secrets.token_hex(16), secrets.token_hex(16), secrets.token_urlsafe(24)
             self.db.execute('INSERT INTO accounts(id,login,name,salt,password,recovery,created) VALUES(?,?,?,?,?,?,?)', (aid, login, name, salt, password_hash(password, salt), digest(recovery), now))
         else:
+            if row and row[6]:raise PermissionError('Аккаунт заблокирован администратором.')
             if row and row[5] > now:
                 raise PermissionError('Слишком много попыток. Повторите через 15 минут.')
             password = data.get('password', '')
@@ -95,7 +113,7 @@ class Accounts:
             self.db.execute('UPDATE accounts SET failures=0,blocked=0 WHERE id=?', (aid,))
         token = secrets.token_urlsafe(32)
         self.db.execute('DELETE FROM account_sessions WHERE expires<=? OR token=?', (now, digest(old_token)))
-        self.db.execute('INSERT INTO account_sessions VALUES(?,?,?)', (digest(token), aid, now + LIFETIME))
+        self.db.execute('INSERT INTO account_sessions(token,account,expires) VALUES(?,?,?)', (digest(token), aid, now + LIFETIME))
         self.db.commit()
         return token, {'ok': True, **({'recovery': recovery} if recovery else {})}
 
@@ -104,6 +122,7 @@ class Accounts:
         self.db.commit()
 
     def password(self, account, data):
+        if account.get('actor'):raise PermissionError('В режиме поддержки пароль меняется только через админ-панель.')
         row = self.db.execute('SELECT salt,password FROM accounts WHERE id=?', (account['id'],)).fetchone()
         current = data.get('currentPassword', '')
         if not isinstance(current, str) or len(current) > 128 or not secrets.compare_digest(password_hash(current, row[0]), row[1]):
@@ -164,7 +183,8 @@ class Accounts:
                 characters=[dict(id=c['id'], name=c['name']) for c in room['characters'] if c['kind'] == 'pc' and c['owner'] == member[0]]))
         self.db.commit()
         characters = [dict(id=r[0], version=r[1], updated=r[2], **json.loads(r[3]), campaign=r[4], character=r[5]) for r in self.db.execute('SELECT id,version,updated,data,room,character FROM account_characters WHERE account=? ORDER BY updated DESC', (account['id'],))]
-        return dict(profile={k: account[k] for k in ('login', 'name')}, campaigns=campaigns, characters=characters, limit=10)
+        return dict(profile={k: account[k] for k in ('login', 'name', 'admin')}, campaigns=campaigns, characters=characters, limit=10,
+                    support=dict(active=bool(account.get('actor')),expires=account.get('expires') if account.get('actor') else None))
 
     def character(self, account, data):
         action, lid = data.get('action'), str(data.get('id', ''))
@@ -203,15 +223,7 @@ class Accounts:
             payload = self.snapshot(room, c)
             source = (code, c['id'])
         elif action == 'save':
-            sheet = data.get('sheet')
-            if not isinstance(sheet, dict) or len(json.dumps(sheet)) > 100000:
-                raise ValueError('Нужен лист из конструктора персонажей.')
-            try:
-                checked = subprocess.run(['node', str(Path(__file__).parent/'validate-sheet.mjs')], input=json.dumps(sheet), text=True, capture_output=True, encoding='utf-8', timeout=8)
-            except (OSError, subprocess.TimeoutExpired):
-                raise ValueError('Не удалось проверить лист. Проверьте Node.js.')
-            if checked.returncode: raise ValueError(checked.stderr.strip()[:300] or 'Некорректный лист.')
-            sheet = json.loads(checked.stdout)['sheet']
+            sheet = validate_sheet(data.get('sheet'))['sheet']
             if row and row[2]:
                 member = self.membership(account, row[2])
                 room = self.game.room(row[2])

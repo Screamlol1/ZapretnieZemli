@@ -22,7 +22,9 @@ from equipment_rules import combat_gear, sync_wear, load as inventory_load
 from skill_checks import apply as character_check
 from save_points import init as init_saves, apply as checkpoint_action
 from workshop import apply as workshop_action, entry as workshop_entry
+from sheet_validation import validate_sheet
 from accounts import Accounts, COOKIE, LIFETIME
+from admin import Administration, SUPPORT_COOKIE, SUPPORT_SECONDS
 from http.cookies import SimpleCookie
 
 ROOT = Path(__file__).parent
@@ -57,6 +59,7 @@ class Game:
         init_saves(self.db)
         self.sessions = {}
         self.accounts = Accounts(self)
+        self.admin = Administration(self)
 
     def save(self, room):
         room['savedAt']=time.time()
@@ -192,6 +195,9 @@ class Game:
         room['members'] = [dict(name=x['name'], role=x['role'], owner=x['owner']) for x in self.sessions.values()
                            if x['room']==s['room'] and time.time()-x['seen']<45]
         room['me'] = dict(role=s['role'], owner=s['owner'], name=s['name'])
+        if s.get('account'):
+            support=self.db.execute('SELECT actor FROM account_sessions WHERE token=?',(s['accountSession'],)).fetchone()
+            if support and support[0]:room['me']['support']=True
         return room
 
     def action(self, s, data):
@@ -219,19 +225,7 @@ class Game:
                             ensure_inventory(room,c['id'])
             campaign_action(room,s,data)
         elif action=='character':
-            sheet = data.get('sheet')
-            if not isinstance(sheet, dict) or sheet.get('game')!='forbidden-lands' or not isinstance(sheet.get('name'),str):
-                raise ValueError('Нужен JSON из конструктора персонажей.')
-            if len(json.dumps(sheet))>100000:
-                raise ValueError('Лист слишком большой.')
-            try:
-                checked = subprocess.run(['node',str(ROOT/'validate-sheet.mjs')],input=json.dumps(sheet),
-                                         text=True,capture_output=True,encoding='utf-8',timeout=8)
-            except (OSError,subprocess.TimeoutExpired):
-                raise ValueError('Не удалось проверить лист: необходим Node.js.')
-            if checked.returncode:
-                raise ValueError(checked.stderr.strip()[:300] or 'Некорректный лист.')
-            validated=json.loads(checked.stdout)
+            validated=validate_sheet(data.get('sheet'))
             sheet=validated['sheet']
             cid = str(data.get('id') or secrets.token_hex(8))
             old = next((c for c in room['characters'] if c['id']==cid),None)
@@ -528,19 +522,41 @@ def make_handler(game,public_test=False,max_rooms=50,limits=None):
             if compressed:self.send_header('Content-Encoding','gzip')
             self.send_header('X-Content-Type-Options','nosniff');self.send_header('Referrer-Policy','no-referrer')
             if retry_after:self.send_header('Retry-After',str(retry_after))
-            if cookie is not None:self.send_header('Set-Cookie',cookie)
+            if cookie is not None:
+                for value in cookie if isinstance(cookie,list) else [cookie]:self.send_header('Set-Cookie',value)
             self.end_headers(); self.wfile.write(raw)
 
-        def account_token(self):
+        def account_token(self, name=COOKIE):
             cookies=SimpleCookie()
             try:cookies.load(self.headers.get('Cookie',''))
             except Exception:return ''
-            return cookies[COOKIE].value if COOKIE in cookies else ''
+            return cookies[name].value if name in cookies else ''
 
-        def account_cookie(self, token):
+        def account_cookie(self, token, name=COOKIE):
             host=urlparse('http://'+self.headers.get('Host','')).hostname
             secure='' if host in ('127.0.0.1','localhost','::1') else '; Secure'
-            return f'{COOKIE}={token}; Path=/api; HttpOnly; SameSite=Strict; Max-Age={LIFETIME if token else 0}'+secure
+            age=(SUPPORT_SECONDS if name==SUPPORT_COOKIE else LIFETIME) if token else 0
+            return f'{name}={token}; Path=/api; HttpOnly; SameSite=Strict; Max-Age={age}'+secure
+
+        def account_context(self):
+            account=game.accounts.authenticate(self.account_token())
+            if self.account_token(SUPPORT_COOKIE):
+                try:support=game.accounts.authenticate(self.account_token(SUPPORT_COOKIE))
+                except PermissionError:return account
+                if support.get('actor')==account['id'] and support.get('parent')==account['session']:return support
+            return account
+
+        def record_support(self, account, data):
+            if account.get('actor'):
+                game.admin.audit(account['actor'],account['id'],'supportWrite','Действие в кабинете пользователя',
+                                 dict(path=self.path,operation=data.get('action') or data.get('operation'),code=data.get('code'),id=data.get('id')))
+
+        def record_campaign_support(self, session, data):
+            if not session.get('account'):return
+            row=game.db.execute('SELECT actor FROM account_sessions WHERE token=?',(session['accountSession'],)).fetchone()
+            if row and row[0]:
+                game.admin.audit(row[0],session['account'],'supportGameAction','Действие в кампании от имени пользователя',
+                                 dict(path=self.path,code=session['room'],action=data.get('action') or data.get('operation'),scope=data.get('scope'),id=data.get('id')))
 
         def limited(self,group):
             if limiter is None:return False
@@ -553,7 +569,7 @@ def make_handler(game,public_test=False,max_rooms=50,limits=None):
             return bool(retry)
 
         def do_POST(self):
-            if self.limited('auth' if self.path in ('/api/create','/api/join','/api/resume','/api/account/register','/api/account/login','/api/account/recover','/api/account/password') else 'write'):return
+            if self.limited('auth' if self.path in ('/api/create','/api/join','/api/resume','/api/account/register','/api/account/login','/api/account/recover','/api/account/password','/api/admin') else 'write'):return
             try:
                 cookie=None
                 length=int(self.headers.get('Content-Length','0'))
@@ -561,19 +577,34 @@ def make_handler(game,public_test=False,max_rooms=50,limits=None):
                 # JSON + same-origin only: browsers cannot submit cross-origin forms to the API.
                 if self.headers.get('Content-Type','').split(';')[0]!='application/json':
                     raise ValueError('Ожидается application/json.')
+                raw=self.rfile.read(length)
                 origin=self.headers.get('Origin')
                 if origin and urlparse(origin).netloc!=self.headers.get('Host'): raise PermissionError('Другой origin.')
                 if self.headers.get('Sec-Fetch-Site')=='cross-site':raise PermissionError('Другой origin.')
-                data=json.loads(self.rfile.read(length))
+                data=json.loads(raw)
                 if not isinstance(data,dict): raise ValueError('Ожидается объект JSON.')
                 with LOCK:
                     if self.path in ('/api/account/register','/api/account/login','/api/account/recover'):
                         token,result=game.accounts.auth(self.path.rsplit('/',1)[1],data,self.account_token())
-                        cookie=self.account_cookie(token)
+                        game.accounts.logout(self.account_token(SUPPORT_COOKIE))
+                        cookie=[self.account_cookie(token),self.account_cookie('',SUPPORT_COOKIE)]
                     elif self.path=='/api/account/logout':
-                        game.accounts.logout(self.account_token());result={'ok':True};cookie=self.account_cookie('')
-                    elif self.path.startswith('/api/account/'):
+                        game.accounts.logout(self.account_token(SUPPORT_COOKIE))
+                        game.accounts.logout(self.account_token());result={'ok':True};cookie=[self.account_cookie(''),self.account_cookie('',SUPPORT_COOKIE)]
+                    elif self.path=='/api/account/end-support':
                         account=game.accounts.authenticate(self.account_token())
+                        game.admin.require(account)
+                        game.accounts.logout(self.account_token(SUPPORT_COOKIE));result={'ok':True};cookie=self.account_cookie('',SUPPORT_COOKIE)
+                        game.admin.audit(account['id'],None,'endSupport','Возврат в аккаунт администратора')
+                    elif self.path=='/api/admin':
+                        account=game.accounts.authenticate(self.account_token())
+                        result=game.admin.action(account,data)
+                        support_token=result.pop('_supportToken',None)
+                        if support_token:
+                            game.accounts.logout(self.account_token(SUPPORT_COOKIE))
+                            cookie=self.account_cookie(support_token,SUPPORT_COOKIE)
+                    elif self.path.startswith('/api/account/'):
+                        account=self.account_context()
                         if self.path=='/api/account/password':result=game.accounts.password(account,data)
                         elif self.path=='/api/account/character':result=game.accounts.character(account,data)
                         elif self.path in ('/api/account/create','/api/account/connect'):
@@ -582,19 +613,26 @@ def make_handler(game,public_test=False,max_rooms=50,limits=None):
                                 raise ValueError('Тестовый сервер достиг лимита кампаний. Обратитесь к владельцу сервера.')
                             result=game.accounts.campaign(account,data,create)
                         else:raise ValueError('Неизвестное действие кабинета.')
+                        self.record_support(account,data)
                     elif self.path in ('/api/create','/api/join'):
                         if public_test and self.path=='/api/create' and game.db.execute('SELECT COUNT(*) FROM rooms').fetchone()[0]>=max_rooms:
                             raise ValueError('Тестовый сервер достиг лимита кампаний. Обратитесь к владельцу сервера.')
                         result=game.login(data,self.path=='/api/create')
                     elif self.path=='/api/resume':
-                        account=game.accounts.authenticate(self.account_token()) if self.account_token() else None
+                        account=self.account_context() if self.account_token() else None
                         result=game.accounts.campaign(account,data) if account else game.reconnect(data)
                     elif self.path=='/api/action':
-                        result=game.action(game.session(self.headers.get('Authorization','')),data)
+                        session=game.session(self.headers.get('Authorization',''))
+                        result=game.action(session,data)
+                        self.record_campaign_support(session,data)
                     elif self.path=='/api/saves':
-                        result=checkpoint_action(game,game.session(self.headers.get('Authorization','')),data)
+                        session=game.session(self.headers.get('Authorization',''))
+                        result=checkpoint_action(game,session,data)
+                        self.record_campaign_support(session,data)
                     elif self.path=='/api/map-image':
-                        result=game.upload_map(game.session(self.headers.get('Authorization','')),data)
+                        session=game.session(self.headers.get('Authorization',''))
+                        result=game.upload_map(session,data)
+                        self.record_campaign_support(session,data)
                     elif self.path=='/api/leave':
                         game.sessions.pop(self.headers.get('Authorization',''),None)
                         result={'ok':True}
@@ -608,7 +646,13 @@ def make_handler(game,public_test=False,max_rooms=50,limits=None):
             if self.limited('read'):return
             if urlparse(self.path).path=='/api/account':
                 try:
-                    with LOCK:result=game.accounts.dashboard(game.accounts.authenticate(self.account_token()))
+                    with LOCK:result=game.accounts.dashboard(self.account_context())
+                    self.respond(200,result)
+                except PermissionError as e:self.respond(403,{'error':str(e)})
+                return
+            if urlparse(self.path).path=='/api/admin':
+                try:
+                    with LOCK:result=game.admin.overview(game.accounts.authenticate(self.account_token()))
                     self.respond(200,result)
                 except PermissionError as e:self.respond(403,{'error':str(e)})
                 return

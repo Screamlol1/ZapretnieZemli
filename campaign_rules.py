@@ -216,7 +216,7 @@ def apply(room,s,data):
         if not c or c['kind']=='monster':raise ValueError('Персонаж не найден.')
         res=data.get('resources')
         if not isinstance(res,dict) or set(res)!={'food','water'} or any(type(v)!=int or v not in (0,6,8,10,12) for v in res.values()):raise ValueError('Припасы: 0, D6, D8, D10 или D12.')
-        c.setdefault('runtime',{})['resources']=res
+        c.setdefault('runtime',{}).setdefault('resources',{}).update(res)
     elif action=='travelConsume':
         c=next((c for c in room['characters'] if c['id']==data.get('id')),None)
         if not c or c['id'] not in t['party'] or not gm and (c['owner']!=s['owner'] or c['kind']!='pc'):raise PermissionError('Можно использовать припасы только своего героя.')

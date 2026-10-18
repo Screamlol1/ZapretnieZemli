@@ -24,6 +24,15 @@ class JourneyTests(unittest.TestCase):
     def clear(self):
         for p in list(self.game.view(self.gm)['journey']['pending']):self.act('travelResolve',id=p['id'],note='Решено.',reveal=False)
     def stock(self,**kw):return {k:kw.get(k,0) for k in MATERIALS}
+    def test_changing_food_water_preserves_arrows_and_torches(self):
+        room=self.game.room(self.gm['room'])
+        room['characters'][0]['runtime']['resources'].update(arrows=10,torches=8)
+        self.game.save(room)
+        c=room['characters'][0]
+        view=self.act('travelSupplies',id=c['id'],resources=dict(food=6,water=12))
+        actual=next(x for x in view['characters'] if x['id']==c['id'])['runtime']['resources']
+        self.assertEqual(actual,dict(food=6,water=12,arrows=10,torches=8))
+
     def hold(self):return self.act('holdCreate',name='Дом',x=0,y=0,confirmed=True)['strongholds'][0]
     @patch('campaign_rules.dice',side_effect=lambda n,sides=6:[6]*n)
     def test_regional_journey_requires_marked_terrain_and_accepts_column_neighbors(self,_):
