@@ -20,6 +20,8 @@ from terrain_map import load_reference, effective_world
 from inventory_rules import apply as inventory_action, public_items, ensure as ensure_inventory
 from equipment_rules import combat_gear, sync_wear, load as inventory_load
 from skill_checks import apply as character_check
+from save_points import init as init_saves, apply as checkpoint_action
+from workshop import apply as workshop_action, entry as workshop_entry
 
 ROOT = Path(__file__).parent
 LOCK = threading.RLock()
@@ -50,9 +52,11 @@ class Game:
         self.image_root = Path(database).parent/'map-images'
         self.db = sqlite3.connect(database, check_same_thread=False)
         self.db.execute('CREATE TABLE IF NOT EXISTS rooms (id TEXT PRIMARY KEY, data TEXT)')
+        init_saves(self.db)
         self.sessions = {}
 
     def save(self, room):
+        room['savedAt']=time.time()
         self.db.execute('INSERT OR REPLACE INTO rooms VALUES (?,?)', (room['id'], json.dumps({k:v for k,v in room.items() if not k.startswith('_')})))
         self.db.commit()
 
@@ -153,6 +157,7 @@ class Game:
                               {**{k:v for k,v in c.items() if k in ('id','owner','name','kind','visual')},'kin':c.get('sheet',{}).get('kin')} for c in room['characters']
                               if s['role']=='gm' or not c.get('hidden')]
         if s['role']!='gm':
+            room.pop('workshop',None)
             room['journey']['pendingCount']=len(room['journey']['pending'])
             room['journey']['pending']=[]
             room['journey']['history']=[e for e in room['journey']['history'] if not e.get('private')]
@@ -187,6 +192,8 @@ class Game:
             if action!='inventoryOpen':room['journey']['gmReady']=False
         elif action in ('characterRoll','characterPush'):
             character_check(room,s,data)
+        elif isinstance(action,str) and action.startswith('workshop'):
+            workshop_action(room,s,data)
         elif isinstance(action,str) and (action.startswith('travel') or action.startswith('hold')):
             if action in ('travelSetup','travelParty','travelPlan','travelReady','travelAdvance'):
                 ids=data.get('party',t['party'])
@@ -254,6 +261,10 @@ class Game:
             for u in room.get('combat',{}).get('units',[]):
                 if u['id']==c['id']:u['visual']=v
         elif action=='actor':
+            source=None
+            if data.get('workshopId'):
+                source=workshop_entry(room,dict(id=data['workshopId'],version=data.get('workshopVersion')))
+                if source.get('published') or source['kind']!='monster' or data.get('id') or data.get('actor',{}).get('kind')!='monster':raise ValueError('Заготовка чудовища уже применена или недоступна.')
             old=next((c for c in room['characters'] if c['id']==data.get('id')),None)
             if old and old['kind']=='pc':raise ValueError('Герой редактируется в конструкторе.')
             if room.get('combat',{}).get('phase')=='combat':raise ValueError('Редактор параметров доступен вне активного боя.')
@@ -274,6 +285,7 @@ class Game:
                 actor['runtime']={**old.get('runtime',{}),**actor['runtime']}
                 actor['runtime']['current']={k:min(old.get('runtime',{}).get('current',{}).get(k,v),v) for k,v in actor['runtime']['current'].items()}
             room['characters']=[c for c in room['characters'] if c['id']!=actor['id']]+[actor]
+            if source:source.update(published=dict(kind='monster',id=actor['id']),version=source['version']+1)
         elif action=='runtime':
             c=next((c for c in room['characters'] if c['id']==data.get('id')),None)
             if not c or not gm:raise PermissionError('Текущее состояние изменяет Мастер.')
@@ -533,6 +545,8 @@ def make_handler(game,public_test=False,max_rooms=50,limits=None):
                         result=game.reconnect(data)
                     elif self.path=='/api/action':
                         result=game.action(game.session(self.headers.get('Authorization','')),data)
+                    elif self.path=='/api/saves':
+                        result=checkpoint_action(game,game.session(self.headers.get('Authorization','')),data)
                     elif self.path=='/api/map-image':
                         result=game.upload_map(game.session(self.headers.get('Authorization','')),data)
                     elif self.path=='/api/leave':
