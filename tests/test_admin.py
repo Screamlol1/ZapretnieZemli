@@ -19,7 +19,7 @@ class AdminTests(unittest.TestCase):
         return self.account
 
     def command(self, operation, target, **data):
-        return self.game.admin.action(self.account,dict(dict(operation=operation,target=target['id'],reason='Проверка функции администратора',password=PASSWORD),**data))
+        return self.game.admin.action(self.account,dict(dict(operation=operation,target=target['id'],reason='Проверка функции администратора'),**data))
 
     def test_signup_cannot_self_promote_and_all_admin_endpoints_check_role(self):
         token,_=self.a.auth('register',dict(login='pretender',password=PASSWORD,admin=True,role='admin'))
@@ -32,16 +32,19 @@ class AdminTests(unittest.TestCase):
         self.assertEqual(self.request('/api/admin')[0],403)
         self.assertEqual(self.request('/api/admin',dict(operation='block',target=self.account['id']),Cookie='zz_account='+token)[0],403)
 
-    def test_list_inspect_never_return_credentials_and_reauthentication(self):
+    def test_list_inspect_never_return_credentials_and_actions_need_only_active_admin_session(self):
         self.administrator();other=self.other()
         snapshot=self.game.admin.overview(self.account)
         self.assertEqual(len(snapshot['accounts']),2)
         serialized=json.dumps(snapshot)
         for marker in ('salt','password','recovery',self.token):self.assertNotIn(marker,serialized)
         self.assertEqual(self.command('inspect',other)['profile']['login'],other['login'])
-        with self.assertRaises(PermissionError):self.command('block',other,password='wrong')
-        self.assertEqual(self.game.db.execute('SELECT disabled FROM accounts WHERE id=?',(other['id'],)).fetchone()[0],0)
+        self.command('block',other)
+        self.assertEqual(self.game.db.execute('SELECT disabled FROM accounts WHERE id=?',(other['id'],)).fetchone()[0],1)
+        self.command('unblock',other)
         with self.assertRaises(ValueError):self.command('block',self.account)
+        self.a.logout(self.token)
+        with self.assertRaises(PermissionError):self.command('block',other)
 
     def test_block_revoke_reset_and_audit(self):
         self.administrator();other=self.other()

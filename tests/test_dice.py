@@ -44,6 +44,34 @@ class DiceTests(unittest.TestCase):
         self.assertEqual(len(r['skillDice']),3);self.assertEqual(r['penalty'],[6]*4)
         self.assertEqual(r['hits'],1)
 
+    @patch('server.secrets.randbelow',side_effect=lambda sides:sides-1)
+    def test_mixed_artifact_pool_sums_every_die_and_preserves_penalties(self,_):
+        e=self.roll(self.ps,artifacts=[8,8,10,12],modifier=-4)['diceRolls'][-1]
+        art=[g for g in e['groups'] if g['kind']=='artifact']
+        self.assertEqual([(g['sides'],g['values']) for g in art],[(8,[8,8]),(10,[10]),(12,[12])])
+        self.assertEqual(e['result'],'Успехов: 17 − 4 = 13.')
+        self.assertEqual(e,self.game.view(self.gs)['diceRolls'][-1])
+        revision=self.game.view(self.gs)['revision']
+        for pool in ([6],[True],[8]*11,'D8',None):
+            with self.assertRaises(ValueError):self.roll(self.ps,artifacts=pool)
+        self.assertEqual(revision,self.game.view(self.gs)['revision'])
+
+    def test_mixed_artifact_push_keeps_successes_and_rerolls_matching_die_sizes(self):
+        c=self.make_pc()
+        with patch('skill_checks.die',return_value=6):
+            self.game.action(self.ps,dict(action='characterRoll',character=c['id'],skill='melee',artifacts=[8,10,12],revision=self.game.view(self.gs)['revision']))
+        room=self.game.room(self.gs['room']);r=room['characters'][0]['runtime']['lastCheck']
+        r['artifacts']=[dict(sides=8,value=8),dict(sides=10,value=2),dict(sides=12,value=5)];self.game.save(room)
+        with patch('skill_checks.die',side_effect=lambda sides=6:sides) as die:
+            v=self.game.action(self.ps,dict(action='characterPush',character=c['id'],roll=r['id']))
+        result=v['characters'][0]['runtime']['lastCheck']
+        self.assertEqual([a['value'] for a in result['artifacts']],[8,10,12])
+        self.assertEqual([a['held'] for a in result['artifacts']],[True,False,False])
+        self.assertEqual([call.args for call in die.call_args_list],[(10,),(12,)])
+        self.assertEqual((result['damage'],result['wear']),(0,0))
+        self.assertEqual(result['hits'],len(r['base'])+len(r['skillDice'])+9)
+        self.assertEqual([g['held'] for g in v['diceRolls'][-1]['groups'] if g['kind']=='artifact'],[[True],[False],[False]])
+
     def test_penalty_push_locks_sixes_rerolls_ones_without_damage(self):
         c=self.make_pc();revision=self.game.view(self.gs)['revision']
         with patch('skill_checks.die',return_value=6):

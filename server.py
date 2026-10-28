@@ -1,7 +1,7 @@
 """Campaign server. Python 3.11+, no third-party dependencies."""
 from journal import stamp_entries
 from location_maps import apply as location_map_action, redact as redact_location_maps
-from dice_pools import skill_counts, result_text
+from dice_pools import skill_counts, result_text, artifact_sides
 from dice_events import publish as publish_dice, group as dice_group, visibility as dice_visibility, redact as redact_dice
 import argparse
 import base64
@@ -462,16 +462,17 @@ class Game:
                 n=data.get(key,0)
                 if type(n)!=int or not 0<=n<=20:raise ValueError('Пул: от 0 до 20 костей.')
                 counts.append(n)
-            mod=data.get('modifier',0);sides=data.get('artifact',0)
+            mod=data.get('modifier',0);artifact_pool=artifact_sides(data)
             if type(mod)!=int or not -10<=mod<=10:raise ValueError('Модификатор: от −10 до +10.')
-            if type(sides)!=int or sides not in (0,8,10,12):raise ValueError('Артефакт: D8, D10 или D12.')
             counts[1],penalty_count=skill_counts(counts[1],mod)
             pools=[[secrets.randbelow(6)+1 for _ in range(count)] for count in counts]
             penalties=[secrets.randbelow(6)+1 for _ in range(penalty_count)]
-            art=[secrets.randbelow(sides)+1] if sides else []
-            hits=sum(v==6 for v in pools[0]+pools[2])+sum(v==6 for v in pools[1])+sum(max(0,v//2-2) for v in art)
+            art=[dict(sides=sides,value=secrets.randbelow(sides)+1) for sides in artifact_pool]
+            hits=sum(v==6 for v in pools[0]+pools[2])+sum(v==6 for v in pools[1])+sum(max(0,a['value']//2-2) for a in art)
             groups=[dice_group('base',pools[0]),dice_group('skill',pools[1]),dice_group('gear',pools[2]),dice_group('penalty',penalties,negative=True)]
-            if art:groups.append(dice_group('artifact',art,sides))
+            for sides in (8,10,12):
+                values=[a['value'] for a in art if a['sides']==sides]
+                if values:groups.append(dice_group('artifact',values,sides))
             publish_dice(room,s['name'],'Свободная проверка',groups,result_text(hits,penalties.count(6)),private)
         else:
             raise ValueError('Неизвестное действие.')

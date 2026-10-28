@@ -25,7 +25,7 @@ def pools(r):
         g['held']=r.get('held',{}).get(key,[])
     groups.append({**group('penalty',r.get('penalty',[]),negative=True),'held':r.get('held',{}).get('penalty',[])})
     for a in r.get('artifacts', []):
-        groups.append(group('artifact', [a['value']], a['sides']))
+        groups.append({**group('artifact', [a['value']], a['sides']), 'held':[a.get('held',False)]})
     if r.get('sides'):
         groups.append({**group('artifact', r.get('artifact', []), r['sides']), 'held':r.get('held',{}).get('artifact',[])})
     return groups

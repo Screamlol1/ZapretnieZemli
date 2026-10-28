@@ -7,6 +7,7 @@ import secrets
 from campaign_rules import coordinate
 
 KINDS = {'settlement', 'camp', 'fortress', 'ruins', 'dungeon', 'cave'}
+ART_IDS = ('thatch','shingle','tile','barn','tavern','smithy','chapel','manor','keep','tower','gate','ruin','tent','pavilion','supplies','well','market','fire','bridge','oak','pine','rocks','room','cave')
 SIZES = dict(small=(760,560), medium=(1000,760), large=(1240,920))
 
 def text(value, limit=80):
@@ -61,7 +62,8 @@ def generate(cfg):
         path([[rooms[0]['x']+rooms[0]['w']/2,0],[rooms[0]['x']+rooms[0]['w']/2,rooms[0]['y']+rooms[0]['h']/2]],'passage',[rooms[0]['id']])
     elif kind=='fortress':
         left,top,right,bottom=90,75,w*.71 if cfg['water'] else w-90,h-75
-        path([[left,top],[right,top],[right,bottom],[left,bottom],[left,top]],'wall')
+        mid=(left+right)/2
+        path([[mid-28,bottom],[left,bottom],[left,top],[right,top],[right,bottom],[mid+28,bottom]],'wall')
         for x,y in ((left,top),(right,top),(right,bottom),(left,bottom)):feature('tower',x-24,y-24,48,48,'Башня','ellipse')
         cx=(left+right)/2;path([[cx,h],[cx,top+100]])
         feature('keep',cx-70,top+65,140,115,'Донжон')
@@ -79,12 +81,13 @@ def generate(cfg):
             angle=2*math.pi*i/n;rx=min(w*.28,240);ry=h*.29
             feature('tent',cx+math.cos(angle)*rx-28,cy+math.sin(angle)*ry-22,56,44,'Шатёр вожака' if i==0 else f'Палатка {i+1}')
         feature('supply',cx-105,cy-65,45,30,'Припасы')
-        if cfg['walls']:path([[cx-w*.34,60],[cx+w*.34,60],[cx+w*.34,h-60],[cx-w*.34,h-60],[cx-w*.34,60]],'palisade')
+        if cfg['walls']:path([[cx-25,h-60],[cx-w*.34,h-60],[cx-w*.34,60],[cx+w*.34,60],[cx+w*.34,h-60],[cx+25,h-60]],'palisade')
     else:
         cx=round(w*.46);cy=round(h*.50);path([[0,cy],[w,cy]]);path([[cx,0],[cx,h]])
         if river:feature('bridge',w*.80-15,cy-15,88,30,'Мост')
-        if cfg['walls']:path([[55,55],[w-55,55],[w-55,h-55],[55,h-55],[55,55]],'wall')
-        spacing={'sparse':105,'normal':85,'dense':70}[cfg['density']]
+        if cfg['walls']:
+            for pts in ([[cx-20,55],[55,55],[55,cy-20]],[[55,cy+20],[55,h-55],[cx-20,h-55]],[[cx+20,h-55],[w-55,h-55],[w-55,cy+20]],[[w-55,cy-20],[w-55,55],[cx+20,55]]):path(pts,'wall')
+        spacing={'sparse':150,'normal':120,'dense':100}[cfg['density']]
         labels=['Таверна','Кузница','Дом старосты','Святилище','Амбар','Торговый двор'] if kind=='settlement' else ['Разрушенный храм','Старая башня','Заросший двор','Обрушенный дом']
         building_index=0
         for y in range(90,h-75,spacing):
@@ -93,6 +96,7 @@ def generate(cfg):
                 if cx+5<x<cx+135 and cy+5<y<cy+120:continue # Leave space for the market square.
                 fw=rng.randint(30,48);fh=rng.randint(28,44)
                 label=labels[building_index] if building_index<len(labels) else ''
+                fw,fh={'Таверна':(72,56),'Кузница':(48,40),'Дом старосты':(64,56),'Святилище':(56,72),'Амбар':(64,40),'Торговый двор':(64,56)}.get(label,(fw,fh))
                 feature('building' if kind=='settlement' else 'ruin',x-fw/2+rng.randint(-7,7),y-fh/2+rng.randint(-7,7),fw,fh,label)
                 building_index+=1
         feature('square',cx+35,cy+35,68,55,'Рынок' if kind=='settlement' else 'Древняя площадь')
@@ -102,7 +106,7 @@ def generate(cfg):
             x=rng.randrange(16,w-16);y=rng.choice([rng.randrange(12,48),rng.randrange(h-48,h-12)])
             if cfg['water'] and abs(x-w*.80)<80:continue
             trees.append([x,y,rng.randrange(8,16)])
-    return dict(generatorVersion=1,width=w,height=h,cellSize=40,metersPerCell=5 if kind in ('dungeon','cave') else 10,
+    return dict(generatorVersion=2,width=w,height=h,cellSize=40,metersPerCell=5 if kind in ('dungeon','cave') else 2 if kind=='camp' else 10,
                 features=features,paths=paths,river=river,trees=trees)
 
 def find(room, identifier):
@@ -160,7 +164,17 @@ def apply(room, session, data):
         f=next((f for f in m['features'] if f['id']==data.get('feature')),None)
         if not f:raise ValueError('Объект не найден.')
         if type(data.get('secret'))!=bool:raise ValueError('Выберите видимость объекта.')
-        f.update(label=text(data.get('label','')),note=text(data.get('note',''),1200),gmNote=text(data.get('gmNote',''),1200),secret=data['secret'])
+        art=data.get('art',f.get('art',''))
+        if not isinstance(art,str) or art not in ('',*ART_IDS):raise ValueError('Выберите иллюстрацию из набора.')
+        if 'widthMeters' in data or 'heightMeters' in data:
+            width,height=data.get('widthMeters'),data.get('heightMeters')
+            if any(type(v) not in (int,float) or not math.isfinite(v) or not .5<=v<=100 for v in (width,height)):raise ValueError('Размеры объекта: от 0,5 до 100 метров.')
+            fw,fh=width*m['cellSize']/m['metersPerCell'],height*m['cellSize']/m['metersPerCell']
+            x,y=f['x']+(f['w']-fw)/2,f['y']+(f['h']-fh)/2
+            if x<0 or y<0 or x+fw>m['width'] or y+fh>m['height']:raise ValueError('Объект такого размера выходит за границы плана.')
+            if f.get('points'):f['points']=[[x+(px-f['x'])*fw/f['w'],y+(py-f['y'])*fh/f['h']] for px,py in f['points']]
+            f.update(x=x,y=y,w=fw,h=fh)
+        f.update(label=text(data.get('label','')),note=text(data.get('note',''),1200),gmNote=text(data.get('gmNote',''),1200),secret=data['secret'],art=art)
     elif action=='locationMapDelete':
         if data.get('confirmed') is not True:raise ValueError('Подтвердите удаление карты.')
         room['locationMaps']=[x for x in maps if x['id']!=m['id']]

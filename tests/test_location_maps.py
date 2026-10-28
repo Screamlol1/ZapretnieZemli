@@ -89,6 +89,15 @@ class LocationMapTests(unittest.TestCase):
             with self.assertRaises(ValueError):self.game.action(self.gs,dict(action='locationMapGenerate',title='Test',settings=cfg))
         self.assertEqual(revision,self.game.view(self.gs)['revision'])
 
+    def test_art_and_metric_dimensions_preserve_center_and_validate_selection(self):
+        m=self.create();f=m['features'][0];cx=f['x']+f['w']/2;cy=f['y']+f['h']/2
+        data=dict(action='locationMapFeature',id=m['id'],version=m['version'],feature=f['id'],label='Дом',note='',gmNote='',secret=False,art='manor',widthMeters=12,heightMeters=10)
+        m=self.game.action(self.gs,data)['locationMaps'][0];f=m['features'][0]
+        self.assertEqual(f['art'],'manor');self.assertEqual(f['w'],48);self.assertEqual(f['h'],40)
+        self.assertEqual(f['x']+f['w']/2,cx);self.assertEqual(f['y']+f['h']/2,cy)
+        for invalid in (dict(art='https://outside/image.png'),dict(widthMeters=float('inf')),dict(heightMeters=-1)):
+            with self.assertRaises(ValueError):self.game.action(self.gs,{**data,'version':m['version'],**invalid})
+
     def test_restart_and_campaign_restore_preserve_maps_and_reject_old_edits(self):
         original=self.create()
         point=checkpoint(self.game,self.gs,dict(operation='create',scope='campaign'))

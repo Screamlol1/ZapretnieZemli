@@ -57,10 +57,6 @@ class Administration:
             raise ValueError('Неизвестная операция администратора.')
         reason=str(data.get('reason','')).strip()
         if len(reason)<5 or len(reason)>500:raise ValueError('Укажите причину: от 5 до 500 символов.')
-        password=data.get('password','')
-        credentials=self.db.execute('SELECT salt,password FROM accounts WHERE id=?',(account['id'],)).fetchone()
-        if not isinstance(password,str) or len(password)>128 or not secrets.compare_digest(password_hash(password,credentials[0]),credentials[1]):
-            raise PermissionError('Подтвердите операцию своим паролем администратора.')
         subject=self.db.execute('SELECT id,login,admin,disabled FROM accounts WHERE id=?',(target,)).fetchone()
         if not subject:raise ValueError('Аккаунт не найден.')
         if target==account['id']:raise ValueError('Для своего аккаунта используйте настройки кабинета. Самоблокировка и снятие своих прав запрещены.')

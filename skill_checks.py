@@ -2,7 +2,7 @@
 import json
 import secrets
 import time
-from dice_pools import skill_counts, result_text
+from dice_pools import skill_counts, result_text, artifact_sides
 from dice_events import publish, pools, visibility
 from inventory_rules import character, editable, ensure, number, text
 from equipment_rules import owned, bonus, artifact
@@ -11,7 +11,8 @@ ATTRS=dict(melee='str',might='str',craft='str',endure='str',sleight='agi',shoot=
 def die(sides=6):return secrets.randbelow(sides)+1
 def successes(value):return max(0,value//2-2) if value>=6 else 0
 def signature(c,item):return json.dumps([c['sheet'],c['runtime']['current'],c['runtime'].get('wp',0),item.get('version') if item else None],sort_keys=True)
-def count(r):return max(0,r['base'].count(6)+r['gear'].count(6)+r['skillDice'].count(6)*(-1 if r['negative'] else 1)+sum(successes(v) for v in r['artifact'])-r.get('penalty',[]).count(6))
+def artifact_successes(r):return sum(successes(v) for v in r['artifact'])+sum(successes(a['value']) for a in r.get('artifacts',[]))
+def count(r):return max(0,r['base'].count(6)+r['gear'].count(6)+r['skillDice'].count(6)*(-1 if r['negative'] else 1)+artifact_successes(r)-r.get('penalty',[]).count(6))
 
 def apply(room,s,data):
     private=visibility(s,data)
@@ -28,8 +29,11 @@ def apply(room,s,data):
         attr=ATTRS[skill];base=rt['current'][attr];skill_value=c['sheet']['skills'].get(skill,0);skill_count,penalty_count=skill_counts(skill_value,mod)
         if base<=0:raise ValueError('Персонаж сломлен по этой характеристике.')
         gear=bonus(item) if item else 0;sides=artifact(item) if item else 0
+        extras=artifact_sides(data)
+        if len(extras)+bool(sides)>10:raise ValueError('Не более 10 артефактных костей вместе с костью выбранного предмета.')
         r=dict(id=secrets.token_hex(8),skill=skill,attribute=attr,note=note,item=iid,itemName=item['name'] if item else '',base=[die() for _ in range(base)],skillDice=[die() for _ in range(skill_count)],gear=[die() for _ in range(gear)],negative=False,penalty=[die() for _ in range(penalty_count)],poolRule='separate-penalties-v1',artifact=[die(sides)] if sides else [],sides=sides,pushed=False,formula=dict(base=base,skill=skill_value,modifier=mod,gear=gear))
         r['private']=private or bool(c.get('hidden'))
+        r['artifacts']=[dict(sides=n,value=die(n)) for n in extras]
         r['signature']=signature(c,item)
         if r['private']:room.setdefault('gmChecks',{})[c['id']]=r
         else:rt['lastCheck']=r
@@ -46,6 +50,9 @@ def apply(room,s,data):
         for key in ('base','skillDice','gear','penalty'):
             r[key]=[die() if v!=6 and (key in ('skillDice','penalty') or v!=1) else v for v in r[key]]
         r['artifact']=[die(r['sides']) if v<6 else v for v in r['artifact']]
+        for a in r.get('artifacts',[]):
+            a['held']=a['value']>=6
+            if not a['held']:a['value']=die(a['sides'])
         damage=r['base'].count(1);wear=r['gear'].count(1)
         rt['current'][r['attribute']]=max(0,rt['current'][r['attribute']]-damage)
         if c['kind']=='pc':rt['wp']=min(10,rt.get('wp',0)+damage)
@@ -54,10 +61,11 @@ def apply(room,s,data):
     r['time']=time.time()
     r['hits']=count(r)
     penalty_hits=r.get('penalty',[]).count(6)
-    positive_hits=r['base'].count(6)+r['gear'].count(6)+r['skillDice'].count(6)*(-1 if r['negative'] else 1)+sum(successes(v) for v in r['artifact'])
+    positive_hits=r['base'].count(6)+r['gear'].count(6)+r['skillDice'].count(6)*(-1 if r['negative'] else 1)+artifact_successes(r)
     result=result_text(positive_hits,penalty_hits) if not r['negative'] else f"Успехов: {r['hits']}."
     f=r['formula'];message=f"{c['name']}: {r['skill']} — {f['base']} + {f['skill']} + мод. {f['modifier']} + предмет {f['gear']}"
     if r['sides']:message+=f" + D{r['sides']}"
+    if r.get('artifacts'):message+=' + '+', '.join(f"D{a['sides']} [{a['value']}]" for a in r['artifacts'])
     message+=f". Кости: база {r['base']}, навык {r['skillDice']}, предмет {r['gear']}, штраф {r.get('penalty',[])}, артефакт {r['artifact']}. {result}"
     if r['pushed']:message+=f" Форсирование: урон {r['damage']}, износ {r['wear']}."
     if r['note']:message+=' '+r['note']
