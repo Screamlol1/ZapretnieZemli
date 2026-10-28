@@ -21,7 +21,8 @@ export function artSprite(art,x,y,w,h,id='location-art-atlas',stretch=false){
  const [sx,sy,sw,sh]=crops[index];
  return `<svg x="${x}" y="${y}" width="${w}" height="${h}" viewBox="${sx} ${sy} ${sw} ${sh}" preserveAspectRatio="${stretch?'none':'xMidYMid meet'}" overflow="hidden" pointer-events="none"><g clip-path="url(#${id}-crop-${index})"><use href="#${id}"/></g></svg>`;
 }
-export function artPreview(id){return `<svg viewBox="0 0 160 120" width="160" height="120" aria-hidden="true"><defs>${artDefinition(atlasURL,'location-art-preview')}</defs>${artSprite(id,0,0,160,120,'location-art-preview')}</svg>`;}
+let previewSerial=0;
+export function artPreview(id){const namespace='location-art-preview-'+(++previewSerial);return `<svg viewBox="0 0 160 120" width="160" height="120" aria-hidden="true"><defs>${artDefinition(atlasURL,namespace)}</defs>${artSprite(id,0,0,160,120,namespace)}</svg>`;}
 let exportAtlas;
 export async function embeddedAtlas(){
  if(!exportAtlas)exportAtlas=fetch(atlasURL).then(r=>{if(!r.ok)throw Error('Не удалось загрузить иллюстрации для экспорта.');return r.blob();}).then(blob=>new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(Error('Не удалось подготовить иллюстрации.'));reader.readAsDataURL(blob);})).catch(e=>{exportAtlas=null;throw e;});
