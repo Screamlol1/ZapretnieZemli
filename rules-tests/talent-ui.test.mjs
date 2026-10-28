@@ -1,3 +1,4 @@
+import {pipReason} from '../public/tools/creation-feedback.js';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import fs from 'node:fs';
@@ -8,7 +9,7 @@ import {HINTS} from '../public/tools/hints.js';
 // Run the production UI handlers with a minimal DOM adapter, without browser processes.
 const elements=new Map(),registered=new Map();
 function element(id){if(!elements.has(id))elements.set(id,{value:'',textContent:'',disabled:false,hidden:false,classList:{add(){},remove(){}},addEventListener(){},set innerHTML(html){this.html=html;const options=[...html.matchAll(/<option value="([^"]*)"([^>]*)>/g)];if(options.length)this.value=(options.find(x=>x[2].includes('selected'))||options[0])[1];},get innerHTML(){return this.html||'';}});return elements.get(id);}
-const context=vm.createContext({...rules,...life,...reforged,HINTS,AbortController,structuredClone,crypto:globalThis.crypto,setTimeout(){return 1;},clearTimeout(){},document:{body:{inert:true,removeAttribute(){}},getElementById:element,addEventListener(){},modelContext:{registerTool(tool){registered.set(tool.name,tool);}}},window:{addEventListener(){}}});
+const context=vm.createContext({...rules,...life,...reforged,HINTS,pipReason,AbortController,structuredClone,crypto:globalThis.crypto,setTimeout(){return 1;},clearTimeout(){},document:{body:{inert:true,removeAttribute(){}},getElementById:element,addEventListener(){},modelContext:{registerTool(tool){registered.set(tool.name,tool);}}},window:{addEventListener(){}}});
 const source=fs.readFileSync(new URL('../public/tools/app.js',import.meta.url),'utf8').replace(/^import[^\n]*\n/gm,'');
 vm.runInContext(source,context);
 assert.equal(context.document.body.inert,false,'Standalone editor is unlocked after initialization');

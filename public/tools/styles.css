@@ -18,3 +18,5 @@
 .battle-link{padding:9px;font-size:13px;text-decoration:none;border:1px solid #ffffff36;border-radius:3px}@media print{.battle-link{display:none}}
 
 .actions{flex-wrap:wrap}.actions .campaign-save{background:#b79b62;color:#172016;border-color:#cfb57d}.actions .campaign-save:hover{background:#cfb57d}@media(max-width:650px){.actions .campaign-save{flex:1 0 100%;padding:10px;font-size:14px}}
+
+.pip[aria-disabled=true]{opacity:.35;cursor:help}.pip.filled[aria-disabled=true]{opacity:.75}.pip:focus-visible{outline:2px solid #6d532d;outline-offset:3px}.allocation-feedback:empty{display:none}.allocation-feedback{padding:8px;border-left:3px solid #a17c3e;background:#e9dfc6}.skill-row .stat-name small{display:block;font-size:10px;color:var(--muted)}.development-panel{border:1px solid #aa915e;padding:12px;margin:14px 0}.development-panel[hidden]{display:none}@media print{.allocation-feedback,#open-development{display:none}}

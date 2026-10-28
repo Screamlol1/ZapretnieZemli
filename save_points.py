@@ -65,6 +65,13 @@ def apply(game,s,data):
     for kind,field in (('items','version'),('characters','equipmentVersion'),('workshop','version')):
         current={x['id']:x.get(field,0) for x in room.get(kind,[])}
         for x in restored.get(kind,[]):x[field]=max(x.get(field,0),current.get(x['id'],0))+1
+    current_chars={c['id']:c for c in room['characters']}
+    for c in restored.get('characters',[]):
+        p=c.get('sheet',{}).get('progression')
+        if p:
+            old=current_chars.get(c['id'],{}).get('sheet',{}).get('progression',{})
+            p['revision']=max(p['revision'],old.get('revision',0))+1
+            p['restCycle']=None
     t=restored.get('journey')
     if t:
         t['revision']=max(t.get('revision',0),room.get('journey',{}).get('revision',0))+1

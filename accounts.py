@@ -1,3 +1,4 @@
+from progression import guard_sheet
 """Persistent accounts, private character library and campaign memberships."""
 import hashlib
 import json
@@ -183,6 +184,10 @@ class Accounts:
                 characters=[dict(id=c['id'], name=c['name']) for c in room['characters'] if c['kind'] == 'pc' and c['owner'] == member[0]]))
         self.db.commit()
         characters = [dict(id=r[0], version=r[1], updated=r[2], **json.loads(r[3]), campaign=r[4], character=r[5]) for r in self.db.execute('SELECT id,version,updated,data,room,character FROM account_characters WHERE account=? ORDER BY updated DESC', (account['id'],))]
+        for c in characters:
+            if c['campaign']:
+                t=self.game.room(c['campaign']).get('journey',{})
+                c['progressionContext']={k:t.get(k) for k in ('cycleId','session')}
         return dict(profile={k: account[k] for k in ('login', 'name', 'admin')}, campaigns=campaigns, characters=characters, limit=10,
                     support=dict(active=bool(account.get('actor')),expires=account.get('expires') if account.get('actor') else None))
 
@@ -198,6 +203,15 @@ class Accounts:
             self.db.execute('DELETE FROM account_characters WHERE id=?', (lid,))
             self.db.commit()
             return {'ok': True}
+        if action == 'progression':
+            if not row or not row[2]:raise ValueError('Для развития подключите героя к кампании. Опыт подтверждает её Мастер.')
+            member=self.membership(account,row[2])
+            room=self.game.room(row[2])
+            if not member or not any(c['id']==row[3] and c['owner']==member[0] for c in room['characters']):
+                raise PermissionError('Владелец героя изменился. Обновите кабинет.')
+            self.game.action(dict(room=row[2],role=member[2],owner=member[0],name=account['name']),
+                dict(data,action='characterProgression',id=row[3]))
+            return {'id':lid}
         if action == 'deploy':
             if not row: raise ValueError('Выберите персонажа.')
             code = str(data.get('code', '')).upper()
@@ -231,7 +245,8 @@ class Accounts:
                     raise PermissionError('Владелец героя изменился. Обновите кабинет.')
                 self.game.action(dict(room=row[2], role='player', owner=member[0], name=account['name']), dict(action='character', id=row[3], sheet=sheet))
                 return {'id': lid}
-            payload = dict(sheet=sheet)
+            guard_sheet(json.loads(row[1])['sheet'] if row else None,sheet,allow_import=row is None)
+            payload = {**(json.loads(row[1]) if row else {}),'sheet':sheet}
             source = (None, None)
         else:
             raise ValueError('Неизвестное действие с персонажем.')

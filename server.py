@@ -24,6 +24,7 @@ from skill_checks import apply as character_check
 from save_points import init as init_saves, apply as checkpoint_action
 from workshop import apply as workshop_action, entry as workshop_entry
 from sheet_validation import validate_sheet
+from progression import apply as progression_action, guard_sheet
 from accounts import Accounts, COOKIE, LIFETIME
 from admin import Administration, SUPPORT_COOKIE, SUPPORT_SECONDS
 from http.cookies import SimpleCookie
@@ -226,11 +227,14 @@ class Game:
                         if c['id'] in ids and c['kind']!='monster' and c.get('sheet',{}).get('game')=='forbidden-lands':
                             ensure_inventory(room,c['id'])
             campaign_action(room,s,data)
+        elif action=='characterProgression':
+            progression_action(room,s,data)
         elif action=='character':
             validated=validate_sheet(data.get('sheet'))
             sheet=validated['sheet']
             cid = str(data.get('id') or secrets.token_hex(8))
             old = next((c for c in room['characters'] if c['id']==cid),None)
+            guard_sheet(old['sheet'] if old else None,sheet,allow_import=gm)
             if old and old['owner']!=s['owner'] and not gm:
                 raise PermissionError('Нельзя изменять чужого персонажа.')
             if old and room.get('combat',{}).get('phase')=='combat' and cid in room.get('combatOwners',{}):
@@ -693,9 +697,10 @@ if __name__=='__main__':
     parser=argparse.ArgumentParser()
     parser.add_argument('--host',default='127.0.0.1'); parser.add_argument('--port',type=int,default=8787)
     parser.add_argument('--database',type=Path,default=ROOT/'campaigns.sqlite')
+    parser.add_argument('--reference-root',type=Path,default=ROOT/'local-assets',help='Private reference map directory, outside the application release.')
     parser.add_argument('--public-test',action='store_true',help='Enable request limits and a 50-campaign cap for a test deployment.')
     args=parser.parse_args()
     args.database.parent.mkdir(parents=True,exist_ok=True)
-    game=Game(args.database)
+    game=Game(args.database,reference_root=args.reference_root)
     print(f'Open http://{args.host}:{args.port}',flush=True)
     ThreadingHTTPServer((args.host,args.port),make_handler(game,public_test=args.public_test)).serve_forever()
