@@ -65,11 +65,11 @@ class EquipmentTests(unittest.TestCase):
             if i.get('combatProfile'):self.assertEqual(i['wear'],i['bonus'])
 
     @patch('skill_checks.die',side_effect=lambda sides=6:sides)
-    def test_skill_pool_uses_wounds_negative_skill_item_and_artifact(self,_):
+    def test_skill_pool_uses_wounds_separate_penalty_item_and_artifact(self,_):
         c=self.hero();i=self.item(c)
         data=dict(action='characterRoll',character=c['id'],skill='lore',modifier=-2,item=i['id'],itemVersion=i['version'],revision=self.game.view(self.gs)['revision'])
         v=self.game.action(self.ps,data);r=next(x for x in v['characters'] if x['id']==c['id'])['runtime']['lastCheck']
-        self.assertEqual(len(r['gear']),4);self.assertEqual(r['artifact'],[10]);self.assertTrue(r['negative'])
+        self.assertEqual(len(r['gear']),4);self.assertEqual(r['artifact'],[10]);self.assertFalse(r['negative']);self.assertEqual(r['penalty'],[6,6]);self.assertEqual(len(r['skillDice']),c['sheet']['skills']['lore'])
         self.assertEqual(r['hits'],len(r['base'])-2+4+3)
         with self.assertRaises(ValueError):self.game.action(self.ps,data)
 

@@ -9,7 +9,7 @@ export function journalEntries(s){
   for(const r of h.rolls||[]){
    if(r.diceEvent)continue;
    if(s.me.role!=='gm'&&(r.skill==='scout'||!s.characters.some(c=>c.id===r.character&&c.owner===s.me.owner)))continue;
-   entries.push({name:r.name,kind:'check',day:h.day,quarter:h.quarter,index:entries.length,text:`${skills[r.skill]||r.skill}: ${r.hits} успехов. База [${r.base}], навык [${r.skillDice}]${r.negative?' (отрицательный)':''}, снаряжение [${r.gear}]${(r.artifacts||[]).map(a=>`, D${a.sides} [${a.value}]`).join('')}.`,private:r.skill==='scout'});
+   entries.push({name:r.name,kind:'check',day:h.day,quarter:h.quarter,index:entries.length,text:`${skills[r.skill]||r.skill}: ${r.hits} успехов. База [${r.base}], навык [${r.skillDice}]${r.negative?' (отрицательный)':''}${r.penalty?.length?' · штраф ['+r.penalty+'] (−успехи)':''}, снаряжение [${r.gear}]${(r.artifacts||[]).map(a=>`, D${a.sides} [${a.value}]`).join('')}.`,private:r.skill==='scout'});
   }
  }
  return entries.sort((a,b)=>(a.day??-1)-(b.day??-1)||(a.quarter??-1)-(b.quarter??-1)||(a.time??0)-(b.time??0)||a.index-b.index);

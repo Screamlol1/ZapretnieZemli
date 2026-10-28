@@ -3,7 +3,7 @@ import copy
 import secrets
 import time
 
-LABELS = dict(base='Характеристика', skill='Навык', gear='Снаряжение', artifact='Артефакт',
+LABELS = dict(penalty='Штраф',base='Характеристика', skill='Навык', gear='Снаряжение', artifact='Артефакт',
               armor='Броня', cover='Укрытие', magic='Магия', table='Таблица', monster='Чудовище')
 
 def visibility(session, data):
@@ -23,6 +23,7 @@ def pools(r):
               group('gear', r.get('gear', []))]
     for g,key in zip(groups,('base','skillDice','gear')):
         g['held']=r.get('held',{}).get(key,[])
+    groups.append({**group('penalty',r.get('penalty',[]),negative=True),'held':r.get('held',{}).get('penalty',[])})
     for a in r.get('artifacts', []):
         groups.append(group('artifact', [a['value']], a['sides']))
     if r.get('sides'):

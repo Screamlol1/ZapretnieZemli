@@ -1,5 +1,6 @@
+import {rollPool,poolScore} from './public/dice-pools.js';
 import {traceDice,tracePool,diceGroup} from './public/dice-trace.js';
-import {protection,rollArtifact,artifactTotal} from './public/equipment-dice.js';
+import {protection,rollArtifact} from './public/equipment-dice.js';
 import {activeUnit,hexDistance,lineOfSight,battleDie,canSpend,BATTLE_WEAPONS,weaponFor} from './public/tools/battle-rules.js';
 export function monsterAttack(battle,targetId,index,push=false,d=battleDie){
  const monster=activeUnit(battle),target=battle.units.find(u=>u.id===targetId);
@@ -23,7 +24,7 @@ export function monsterAttack(battle,targetId,index,push=false,d=battleDie){
    if(!gear||mode==='weapon'&&weaponFor(target).ranged)base=undefined;
    else if(mode==='weapon'&&!weaponFor(target).parrying)modifier=-2;
   }
-  if(base!==undefined){if(target.fast)target.fast--;else target.slow--;const sd=skill+modifier;const p={base:roll(base),skill:roll(Math.abs(sd)),gear:roll(gear),negative:sd<0,artifact:rollArtifact(mode==='shield'?target.shieldArtifact:mode==='weapon'?target.weaponArtifact:0,d)};defense=Math.max(0,hits(p.base)+hits(p.skill)*(sd<0?-1:1)+hits(p.gear)+artifactTotal(p.artifact));tracePool(battle,target,'Защита от чудовища',p);}
+  if(base!==undefined){if(target.fast)target.fast--;else target.slow--;const p=rollPool(base,skill,gear,modifier,d);p.artifact=rollArtifact(mode==='shield'?target.shieldArtifact:mode==='weapon'?target.weaponArtifact:0,d);defense=poolScore(p).hits;tracePool(battle,target,'Защита от чудовища',p);}
  }
  const dice=roll(a.dice),net=hits(dice)-defense;traceDice(battle,monster,a.name,[diceGroup('monster',dice)],`Успехов: ${hits(dice)}.`);let damage=0,armor=[];
  const oldLogLength=battle.log.length;

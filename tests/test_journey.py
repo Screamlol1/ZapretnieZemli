@@ -166,7 +166,7 @@ class JourneyTests(unittest.TestCase):
         scout,survive=v['journey']['history'][-1]['rolls'][:2]
         self.assertEqual(scout['modifier'],0);self.assertEqual(survive['modifier'],1);self.assertEqual(survive['hits'],2);self.assertEqual(survive['artifact'],8)
     @patch('campaign_rules.dice',side_effect=lambda n,sides=6:[8 if sides==8 else 6]*n)
-    def test_negative_skill_cancels_artifact_successes_before_clamping(self,_):
+    def test_penalties_cancel_artifact_successes_before_clamping(self,_):
         r=self.game.room(self.gm['room']);r['characters'][0]['sheet']['talents']={'pathfinder':3};self.game.save(r)
         self.plan(modifier=-8);v=self.act('travelAdvance',path=[dict(x=1,y=0)])
         roll=v['journey']['history'][-1]['rolls'][0]

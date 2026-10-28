@@ -20,11 +20,58 @@ class DiceTests(unittest.TestCase):
         self.assertEqual(e,self.game.view(self.gs)['diceRolls'][-1])
         other=self.game.login(dict(name='Другой игрок',code=self.gm['code'],key=self.gm['playerKey']))
         self.assertEqual(e,self.game.view(self.game.session(other['token']))['diceRolls'][-1])
-        self.assertEqual([g['kind'] for g in e['groups']],['base','skill','gear','artifact'])
-        self.assertTrue(e['groups'][1]['negative'])
+        self.assertEqual([g['kind'] for g in e['groups']],['base','skill','gear','penalty','artifact'])
+        self.assertFalse(e['groups'][1]['negative'])
+        self.assertTrue(e['groups'][3]['negative'])
+        self.assertEqual(len(e['groups'][3]['values']),4)
         self.assertEqual(len(e['groups'][1]['values']),2)
         self.assertEqual(e['groups'][-1]['sides'],12)
         self.assertEqual(e,self.game.room(self.gs['room'])['diceRolls'][-1])
+
+    @patch('server.secrets.randbelow',side_effect=lambda sides:sides-1)
+    def test_free_check_subtracts_penalty_successes_after_artifacts(self,_):
+        e=self.roll(self.ps,artifact=12,modifier=-4)['diceRolls'][-1]
+        self.assertEqual(e['result'],'Успехов: 10 − 4 = 6.')
+
+    def test_skill_counts_keep_full_skill_even_for_small_penalties(self):
+        from dice_pools import skill_counts
+        for skill in (0,2,4):
+            for penalty in (1,2,5):self.assertEqual(skill_counts(skill,-penalty),(skill,penalty))
+        self.assertEqual(skill_counts(2,1,-4),(3,4))
+        from campaign_rules import check
+        c=dict(id='sample',name='Герой',sheet=dict(attrs=dict(wit=2),skills=dict(survive=2)))
+        with patch('campaign_rules.dice',side_effect=lambda n:[6]*n):r=check(c,'survive',[1,-4])
+        self.assertEqual(len(r['skillDice']),3);self.assertEqual(r['penalty'],[6]*4)
+        self.assertEqual(r['hits'],1)
+
+    def test_penalty_push_locks_sixes_rerolls_ones_without_damage(self):
+        c=self.make_pc();revision=self.game.view(self.gs)['revision']
+        with patch('skill_checks.die',return_value=6):
+            v=self.game.action(self.ps,dict(action='characterRoll',character=c['id'],skill='melee',modifier=-2,revision=revision))
+        room=self.game.room(self.gs['room']);r=room['characters'][0]['runtime']['lastCheck']
+        self.assertEqual(len(r['skillDice']),c['sheet']['skills']['melee'])
+        self.assertEqual(r['penalty'],[6,6])
+        r['penalty']=[6,1];self.game.save(room)
+        with patch('skill_checks.die',return_value=2) as die:
+            v=self.game.action(self.ps,dict(action='characterPush',character=c['id'],roll=r['id']))
+        r=v['characters'][0]['runtime']['lastCheck']
+        self.assertEqual(die.call_count,1);self.assertEqual(r['penalty'],[6,2])
+        self.assertEqual(r['held']['penalty'],[True,False])
+        self.assertEqual((r['damage'],r['wear']),(0,0))
+        self.assertEqual(r['hits'],len(r['base'])+len(r['skillDice'])-1)
+
+    def test_legacy_pending_push_keeps_original_pool(self):
+        c=self.make_pc()
+        with patch('skill_checks.die',return_value=6):
+            self.game.action(self.ps,dict(action='characterRoll',character=c['id'],skill='lore',modifier=-2,revision=self.game.view(self.gs)['revision']))
+        room=self.game.room(self.gs['room']);r=room['characters'][0]['runtime']['lastCheck']
+        r.pop('poolRule');r.pop('penalty');r.update(negative=True,skillDice=[6,2])
+        self.game.save(room)
+        with patch('skill_checks.die',return_value=2):
+            v=self.game.action(self.ps,dict(action='characterPush',character=c['id'],roll=r['id']))
+        r=v['characters'][0]['runtime']['lastCheck']
+        self.assertEqual(r['skillDice'],[6,2]);self.assertTrue(r['negative'])
+        self.assertEqual(r['penalty'],[]);self.assertEqual(r['hits'],len(r['base'])-1)
 
     def test_hidden_roll_is_server_redacted_and_player_cannot_request_it(self):
         before=self.game.view(self.ps)['revision']

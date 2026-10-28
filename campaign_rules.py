@@ -1,3 +1,4 @@
+from dice_pools import skill_counts, result_text
 from dice_events import publish as publish_dice, pools as dice_pools
 """Journey and stronghold state. PH chapters 7–8; complex consequences stay with GM."""
 import secrets
@@ -69,10 +70,11 @@ def journal(room,text): room['log'].append(dict(name='Путешествие',te
 def check(c,skill,mod=0,gear=0):
     attr={'survive':'wit','scout':'wit','endure':'str','craft':'str','shoot':'agi'}[skill]
     base=c.get('runtime',{}).get('current',c['sheet']['attrs']).get(attr,0)
-    n=c['sheet']['skills'].get(skill,0)+mod
-    a,b,g=dice(base),dice(abs(n)),dice(gear)
-    net=a.count(6)+(1 if n>=0 else -1)*b.count(6)+g.count(6)
-    return dict(character=c['id'],name=c['name'],skill=skill,base=a,skillDice=b,negative=n<0,gear=g,modifier=mod,hits=max(0,net),netHits=net)
+    modifiers=list(mod) if isinstance(mod,(tuple,list)) else [mod]
+    normal,penalties=skill_counts(c['sheet']['skills'].get(skill,0),*modifiers)
+    a,b,g,p=dice(base),dice(normal),dice(gear),dice(penalties)
+    net=a.count(6)+b.count(6)+g.count(6)-p.count(6)
+    return dict(character=c['id'],name=c['name'],skill=skill,base=a,skillDice=b,negative=False,penalty=p,poolRule='separate-penalties-v1',gear=g,modifier=sum(modifiers),hits=max(0,net),netHits=net)
 
 def pending(room,category,source,roll=None):
     t=room['journey']; item=dict(id=secrets.token_hex(8),category=category,source=source,roll=roll,note='',revealed=False)
@@ -340,15 +342,16 @@ def advance(room,data,defer_clock=False):
         selected_item=next((i for i in owned(room,c['id']) if i['id']==p.get('gearItem')),None) if skill=='survive' and gear is None else None
         if skill=='survive' and p.get('gearItem') and gear is None and not selected_item:raise ValueError('Снаряжение для заявки передано. Выберите предмет заново.')
         equipment_bonus=item_bonus(selected_item) if selected_item else ((p['gear'] if skill=='survive' else 0) if gear is None else gear)
-        r=check(c,skill,mod+extra+bonus,equipment_bonus)
-        r['formula']=dict(base=len(r['base']),skill=c['sheet']['skills'].get(skill,0),conditions=mod,manual=extra,talent=bonus,gear=equipment_bonus,item=selected_item['name'] if selected_item else '')
+        condition_modifiers=list(mod) if isinstance(mod,(tuple,list)) else [mod]
+        r=check(c,skill,[*condition_modifiers,extra,bonus],equipment_bonus)
+        r['formula']=dict(base=len(r['base']),skill=c['sheet']['skills'].get(skill,0),conditions=sum(condition_modifiers),manual=extra,talent=bonus,gear=equipment_bonus,item=selected_item['name'] if selected_item else '')
         r['artifacts']=[]
         if selected_item and item_artifact(selected_item):
             sides=item_artifact(selected_item);value=dice(1,sides)[0];r['artifacts'].append(dict(sides=sides,value=value))
         if rank>=3 and talent in ('pathfinder','quartermaster'):
             artifact=dice(1,8)[0];r['artifact']=artifact;r['artifacts'].append(dict(sides=8,value=artifact))
         r['hits']=max(0,r['netHits']+sum(max(0,a['value']//2-2) if a['value']>=6 else 0 for a in r['artifacts']))
-        r['diceEvent']=publish_dice(room,c['name'],'Путешествие · '+skill,dice_pools(r),f"Успехов: {r['hits']}.",skill=='scout' or bool(c.get('hidden')))
+        r['diceEvent']=publish_dice(room,c['name'],'Путешествие · '+skill,dice_pools(r),result_text(r['netHits']+r['penalty'].count(6)+sum(max(0,a['value']//2-2) for a in r['artifacts']),r['penalty'].count(6)),skill=='scout' or bool(c.get('hidden')))
         rolls.append(r);return r
     if hiking:
         overloaded=[c for c in party if c.get('inventoryInitialized') and inventory_load(room,c)['overloaded']]
@@ -387,7 +390,7 @@ def advance(room,data,defer_clock=False):
                 t['camp']=dict(position=t['position'].copy(),day=t['day'],watchBonus=0)
                 continue
             if job in ('forageFood','forageWater','fish','camp','hunt'):
-                mod=TERRAINS[terrain][2]+season if job.startswith('forage') else TERRAINS[terrain][3] if job=='hunt' else 0
+                mod=[TERRAINS[terrain][2],season] if job.startswith('forage') else TERRAINS[terrain][3] if job=='hunt' else 0
                 r=rolled(c,'survive',mod)
                 if job=='camp':t['camp']=dict(position=t['position'].copy(),day=t['day'],watchBonus=2 if c['sheet'].get('talents',{}).get('quartermaster',0)>=2 else 0)
                 if not r['hits']:

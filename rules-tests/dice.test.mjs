@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import {diceFeed} from '../public/dice-ui.js';
 import {newBattle,attack,validateBattle} from '../public/tools/battle-rules.js';
+import {skillCounts,rollPool,poolScore} from '../public/dice-pools.js';
+for(const skill of [0,2,4])for(const penalty of [1,2,5])assert.deepEqual(skillCounts(skill,-penalty),{skill,penalty});
+assert.deepEqual(skillCounts(2,1,-4),{skill:3,penalty:4},'bonuses and penalties coexist');
+const separate=rollPool(2,2,1,-4,()=>6);separate.artifact=[{sides:12,value:12}];
+assert.equal(separate.skill.length,2);assert.equal(separate.penalty.length,4);
+assert.deepEqual(poolScore(separate),{positive:9,penalty:4,hits:5});
+assert.equal(poolScore({base:[],skill:[6],gear:[],penalty:[6,6]}).hits,0);
 const feed=diceFeed(),s={id:'campaign',me:{role:'player'},diceRolls:[{id:'old'}]};
 assert.deepEqual(feed(s),[],'initial history is silent');
 s.diceRolls.push({id:'a'},{id:'b'},{id:'secret',private:true});
@@ -21,4 +28,10 @@ assert.ok(traced.diceEvents.some(e=>e.groups.some(g=>g.kind==='artifact'&&g.side
 assert.ok(traced.diceEvents.some(e=>e.label==='Форсирование атаки'));
 assert.equal(traced.diceEvents.find(e=>e.label==='Форсирование атаки').groups.find(g=>g.kind==='artifact').held[0],true,'successful artifact stays still');
 validateBattle(traced);
+const ranged=structuredClone(b);ranged.units[1].q=6;ranged.units[0].weapon='bow';ranged.units[0].ready=true;ranged.units[0].aim=true;ranged.units[0].shoot=2;ranged.units[0].gear=2;ranged.diceEvents=[];ranged.commandLog=[];
+attack(ranged,ranged.units[1].id,'shoot',{push:true},()=>2);
+const attackRoll=ranged.diceEvents.find(e=>e.label==='Атака');
+assert.equal(attackRoll.groups.find(g=>g.kind==='skill').values.length,3,'full shooting skill plus aim');
+assert.equal(attackRoll.groups.find(g=>g.kind==='penalty').values.length,1,'range penalty rolls separately from aim');
+assert.ok(ranged.diceEvents.find(e=>e.label==='Форсирование атаки').groups.some(g=>g.kind==='penalty'));
 console.log('Dice: shared event deduplication, privacy, combat traces and unchanged random outcomes passed.');
