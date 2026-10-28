@@ -14,3 +14,9 @@ export function rollPool(base,skill,gear,modifiers,d){
  return {base:roll(base),skill:roll(counts.skill),gear:roll(gear),penalty:roll(counts.penalty),negative:false,poolRule:'separate-penalties-v1'};
 }
 export function scoreText(p){const s=poolScore(p);return s.penalty?`Успехов: ${s.positive} − ${s.penalty} = ${s.hits}.`:`Успехов: ${s.hits}.`;}
+export function canPushPool(p){return ['base','skill','gear','penalty'].some(k=>(p[k]||[]).some(v=>v!==6&&(['skill','penalty'].includes(k)||v!==1)))||(p.artifact||[]).some(a=>a.value<6);}
+export function pushPool(p,die){
+ p.held={};for(const key of ['base','skill','gear','penalty']){p.held[key]=(p[key]||[]).map(v=>v===6||!['skill','penalty'].includes(key)&&v===1);p[key]=(p[key]||[]).map((v,i)=>p.held[key][i]?v:die(6));}
+ p.held.artifact=(p.artifact||[]).map(a=>a.value>=6);for(const a of p.artifact||[])if(a.value<6)a.value=die(a.sides);
+ return {damage:p.base.filter(v=>v===1).length,wear:p.gear.filter(v=>v===1).length};
+}

@@ -1,3 +1,5 @@
+from opposed_checks import apply as opposed_action
+from free_risk import apply as free_risk_action
 """Campaign server. Python 3.11+, no third-party dependencies."""
 from journal import stamp_entries
 from location_maps import apply as location_map_action, redact as redact_location_maps
@@ -169,6 +171,14 @@ class Game:
         if s['role']=='gm':
             room['owners']=[dict(owner=x['owner'],name=x.get('name','Участник'),role=x['role']) for x in identities.values()]
         room.pop('combatOwners',None)
+        if room.get('combat',{}).get('pendingRisk'):
+            risk=room['combat']['pendingRisk'];risk.pop('replay',None)
+            if risk.get('private') and s['role']!='gm':room['combat']['pendingRisk']={'waiting':True}
+        if room.get('combat',{}).get('initiativeDraw'):room['combat']['initiativeDraw'].pop('deck',None)
+        free=room.pop('freeChecks',{}).get(s['owner'])
+        if free and not free.get('done'):room['freeRisk']={'roll':free['id']}
+        room.pop('journeyResolution',None)
+        if room.get('journeyRisk',{}).get('private') and s['role']!='gm':room['journeyRisk']={'waiting':True}
         room.pop('locationHistory',None)
         artwork=room.get('mapArtwork',{})
         room['mapArtwork']={k:v for k,v in artwork.items() if k in ('style','revision')}
@@ -183,6 +193,7 @@ class Game:
                               if s['role']=='gm' or not c.get('hidden')]
         if s['role']!='gm':
             redact_dice(room)
+            room['opposedChecks']=[p for p in room.get('opposedChecks',[]) if not p['private']]
             redact_location_maps(room)
             room.pop('workshop',None)
             room['journey']['pendingCount']=len(room['journey']['pending'])
@@ -213,6 +224,8 @@ class Game:
         previous_logs={id(entry) for entry in room['log']}
         action = data.get('action')
         gm = s['role']=='gm'
+        if room.get('journeyRisk') and action not in ('travelRisk','chat','roll','freePush','freeAccept'):raise ValueError('Сначала завершите проверку путешествия: примите результат или пойдите на риск.')
+        if room.get('combat',{}).get('pendingRisk') and action in ('character','actor','assignCharacter','runtime','deleteCharacter','combatCreate','combatManual','combatClose'):raise ValueError('Сначала завершите текущий боевой бросок.')
         t=journey_state(room)
         if t['phase']=='resolving' and action in ('character','actor','deleteCharacter','assignCharacter','runtime') and data.get('id') in t['party']:
             raise ValueError('Персонаж выполняет занятие. Завершите текущую четверть перед изменением листа или владельца.')
@@ -221,7 +234,9 @@ class Game:
         if action in ('inventoryOpen','itemCreate','itemEdit','itemTransfer','itemWear','equipment','inventoryCoins'):
             inventory_action(room,s,data)
             if action!='inventoryOpen':room['journey']['gmReady']=False
-        elif action in ('characterRoll','characterPush'):
+        elif action in ('opposedCreate','opposedRoll','opposedPush','opposedAccept','opposedCancel'):
+            opposed_action(room,s,data)
+        elif action in ('characterRoll','characterPush','characterAccept'):
             character_check(room,s,data)
         elif isinstance(action,str) and action.startswith('locationMap'):
             location_map_action(room,s,data)
@@ -411,19 +426,25 @@ class Game:
             if data.get('revision')!=room.get('combatRevision'):raise ValueError('Бой обновился. Повторите действие после синхронизации.')
             cmd=data.get('command',{})
             if not isinstance(cmd,dict):raise ValueError('Некорректная команда.')
-            name=cmd.get('action');actor=cmd.get('unit') if name in ('move','defense') else (battle['order'][battle['turn']] if battle['order'] else None)
+            name=cmd.get('action');actor=cmd.get('unit') if name in ('move','defense','initiativeChoose','initiativeOffer','initiativeAccept','initiativeSurprise') else (battle['order'][battle['turn']] if battle['order'] else None)
+            pending=battle.get('pendingRisk')
+            if pending:
+                if name!='risk' or cmd.get('roll')!=pending['id']:raise ValueError('Сначала примите результат броска или пойдите на риск.')
+                actor=pending['actor']
+                if pending.get('private') and not gm:raise PermissionError('Скрытый бросок завершает Мастер.')
             if not gm:
-                if name in ('start','ai','resolve') or not actor or room.get('combatOwners',{}).get(actor)!=s['owner']:raise PermissionError('Вы управляете только своим бойцом.')
+                if name in ('start','ai','resolve','initiativeSurprise') or not actor or room.get('combatOwners',{}).get(actor)!=s['owner']:raise PermissionError('Вы управляете только своим бойцом.')
                 char=next((c for c in room['characters'] if c['id']==actor),None)
                 if not char or char['kind']!='pc':raise PermissionError('ПВ и чудовищами управляет Мастер.')
-                if name!='defense' and battle['phase']=='combat' and actor!=battle['order'][battle['turn']]:raise PermissionError('Сейчас ход другого бойца.')
-            private=dice_visibility(s,data)
+                if name not in ('defense','risk','initiativeChoose','initiativeOffer','initiativeAccept') and battle['phase']=='combat' and actor!=battle['order'][battle['turn']]:raise PermissionError('Сейчас ход другого бойца.')
+            private=pending.get('private',False) if pending else dice_visibility(s,data)
             room['combat']=self.engine(dict(battle=battle,command=cmd))
             updated=room['combat']
+            if updated.get('pendingRisk'):updated['pendingRisk']['private']=private
             new_logs=updated.pop('commandLog',[])
             updated['publicLog']=(battle.get('publicLog',battle['log'])+([] if private else new_logs))[-300:]
             for roll in updated.pop('diceEvents',[]):
-                publish_dice(room,roll['name'],roll['label'],roll['groups'],roll['result'],private)
+                publish_dice(room,roll['name'],roll['label'],roll['groups'],roll['result'],private,risk=roll.get('risk'))
             sync_wear(room,room['combat'])
             before=next((u for u in battle['units'] if u['id']==actor),None)
             hit_ids=[u['id'] for u in room['combat']['units'] if any(u[k]<next(v for v in battle['units'] if v['id']==u['id'])[k] for k in ('str','agi','wits','emp'))]
@@ -435,6 +456,7 @@ class Game:
         elif action=='combatManual':
             battle=room.get('combat')
             if not battle or battle['phase']!='combat':raise ValueError('Нет активного боя.')
+            if battle.get('pendingRisk'):raise ValueError('Сначала завершите текущий бросок.')
             if data.get('revision')!=room.get('combatRevision'):raise ValueError('Бой обновился. Повторите действие.')
             note=data.get('note');actor=data.get('actor');target=data.get('target');attribute=data.get('attribute');damage=data.get('damage')
             caster=next((u for u in battle['units'] if u['id']==actor),None);victim=next((u for u in battle['units'] if u['id']==target),None)
@@ -454,6 +476,7 @@ class Game:
                 u=next((u for u in battle['units'] if u['id']==c['id']),None)
                 if u:c['runtime']={**c.get('runtime',{}),**dict(current=dict(str=u['str'],agi=u['agi'],wit=u['wits'],emp=u['emp']),wp=u['wp'],gearBonus=u['gear'],armor=u['armor'])}
         elif action=='combatClose':
+            if room.get('combat',{}).get('pendingRisk'):raise ValueError('Сначала завершите текущий бросок.')
             room.pop('combat',None);room.pop('combatOwners',None);room['combatRevision']=room.get('combatRevision',0)+1
         elif action=='event':
             events=['На тропе обнаружены свежие следы большого зверя.', 'Путники просят провести их до ближайшего поселения.',
@@ -463,6 +486,8 @@ class Game:
         elif action=='chat':
             msg=str(data.get('text','')).strip()[:1000]
             if msg: room['log'].append(dict(name=s['name'],text=msg))
+        elif action in ('freePush','freeAccept'):
+            free_risk_action(room,s,data)
         elif action=='roll':
             private=dice_visibility(s,data)
             counts=[]
@@ -481,7 +506,10 @@ class Game:
             for sides in (8,10,12):
                 values=[a['value'] for a in art if a['sides']==sides]
                 if values:groups.append(dice_group('artifact',values,sides))
-            publish_dice(room,s['name'],'Свободная проверка',groups,result_text(hits,penalties.count(6)),private)
+            roll_id=secrets.token_hex(12)
+            r=dict(id=roll_id,private=private,base=pools[0],skillDice=pools[1],gear=pools[2],penalty=penalties,artifacts=art)
+            room.setdefault('freeChecks',{})[s['owner']]=r
+            publish_dice(room,s['name'],'Свободная проверка',groups,result_text(hits,penalties.count(6)),private,risk=dict(action='free',roll=roll_id,owner=s['owner']))
         else:
             raise ValueError('Неизвестное действие.')
         stamp_entries(room,previous_logs,action)

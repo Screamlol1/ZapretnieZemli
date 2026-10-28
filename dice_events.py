@@ -30,10 +30,14 @@ def pools(r):
         groups.append({**group('artifact', r.get('artifact', []), r['sides']), 'held':r.get('held',{}).get('artifact',[])})
     return groups
 
-def publish(room, name, label, groups, result, private=False, message=None):
+def publish(room, name, label, groups, result, private=False, message=None, risk=None):
     event = dict(id=secrets.token_hex(12), time=time.time(), name=name, label=label,
                  groups=copy.deepcopy([g for g in groups if g['values']]), result=str(result), private=bool(private))
-    room['diceRolls'] = (room.get('diceRolls', []) + [event])[-200:]
+    if risk:event['risk']=copy.deepcopy(risk)
+    pending={room.get('combat',{}).get('pendingRisk',{}).get('id'),room.get('journeyRisk',{}).get('id')} - {None}
+    events=room.get('diceRolls', []) + [event]
+    pinned=[e for e in events[:-200] if e.get('risk',{}).get('roll') in pending]
+    room['diceRolls'] = pinned + events[-(200-len(pinned)):] if pinned else events[-200:]
     if message is None:
         values = '; '.join(f"{g['label']}{' (−)' if g.get('negative') else ''} D{g['sides']} [{', '.join(map(str, g['values']))}]" for g in event['groups'])
         message = f'{label}: {values or "без костей"}. {result}'

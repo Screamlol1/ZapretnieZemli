@@ -1,3 +1,4 @@
+import {defenseCost,rank,weaponTalent} from './public/battle-talents.js';
 import {rollPool,poolScore} from './public/dice-pools.js';
 import {traceDice,tracePool,diceGroup} from './public/dice-trace.js';
 import {protection,rollArtifact} from './public/equipment-dice.js';
@@ -15,8 +16,8 @@ export function monsterAttack(battle,targetId,index,push=false,d=battleDie){
  if(a.type==='fear'&&target.monster)throw Error('Чудовища невосприимчивы к страху.');
  const roll=n=>Array.from({length:n},()=>d(6)),hits=a=>a.filter(v=>v===6).length;
  monster.slow--;let defense=0;
- const mode=target.defense;
- if(a.type==='physical'&&canSpend(target,'fast')&&mode!=='none'){
+ const mode=target.defense,reaction=defenseCost(target,mode);
+ if(a.type==='physical'&&target.agi>0&&target.wits>0&&target.emp>0&&(reaction.free||canSpend(target,'fast'))&&mode!=='none'){
   let base,skill,gear=0,modifier=0;
   if(mode.startsWith('dodge')&&a.dodge){base=target.agi;skill=target.move;modifier=mode==='dodgeStand'?-2:0;if(mode==='dodge')target.prone=true;}
   else if(a.parry&&['weapon','shield'].includes(mode)){
@@ -24,7 +25,7 @@ export function monsterAttack(battle,targetId,index,push=false,d=battleDie){
    if(!gear||mode==='weapon'&&weaponFor(target).ranged)base=undefined;
    else if(mode==='weapon'&&!weaponFor(target).parrying)modifier=-2;
   }
-  if(base!==undefined){if(target.fast)target.fast--;else target.slow--;const p=rollPool(base,skill,gear,modifier,d);p.artifact=rollArtifact(mode==='shield'?target.shieldArtifact:mode==='weapon'?target.weaponArtifact:0,d);defense=poolScore(p).hits;tracePool(battle,target,'Защита от чудовища',p);}
+  if(base!==undefined){if(!reaction.free){if(target.fast)target.fast--;else target.slow--;}target.reactions??={};target.reactions[reaction.key]=(target.reactions[reaction.key]||0)+1;const sword=mode==='weapon'&&weaponTalent(target,'slash')==='sword'?rank(target,'sword'):0;const p=rollPool(base,skill,gear,[modifier,reaction.bonus,sword?1:0],d);p.artifact=rollArtifact(mode==='shield'?target.shieldArtifact:mode==='weapon'?target.weaponArtifact:0,d);if(sword>=3)p.artifact.push({sides:8,value:d(8)});defense=poolScore(p).hits;tracePool(battle,target,'Защита от чудовища',p);}
  }
  const dice=roll(a.dice),net=hits(dice)-defense;traceDice(battle,monster,a.name,[diceGroup('monster',dice)],`Успехов: ${hits(dice)}.`);let damage=0,armor=[];
  const oldLogLength=battle.log.length;

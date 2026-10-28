@@ -1,3 +1,5 @@
+import {initiative} from './initiative.mjs';
+import {riskCommand} from './combat-risk.mjs';
 import {newBattle,validateBattle,startBattle,endTurn,activeUnit,moveUnit,resolveLoad,attack,simpleAction,aiTurn,castSpell,resolveMishap,BATTLE_WEAPONS} from './public/tools/battle-rules.js';
 import {inventory,ITEMS} from './public/tools/rules.js';
 import {monsterAttack} from './monster-rules.mjs';
@@ -13,7 +15,7 @@ try{
     str:current.str,maxStr:sheet.attrs.str,agi:current.agi,maxAgi:sheet.attrs.agi,wits:current.wit,maxWits:sheet.attrs.wit,emp:current.emp,maxEmp:sheet.attrs.emp,
     melee:sheet.skills.melee,shoot:sheet.skills.shoot,move:sheet.skills.move,armor:items.reduce((n,x)=>n+(x.armor||0),0),
     shield:Math.max(0,...items.map(x=>x.shield||0)),gear:items.some(x=>weapons[x.id])?BATTLE_WEAPONS[weapon].bonus:0,
-    wp:c.kind==='pc'?c.runtime?.wp||0:0,kind:c.kind,npc:c.kind==='npc',kin:sheet.kin,visual:c.visual,magic:{},ingredients:{torch:0,blood:0,hand:0},ready:!!BATTLE_WEAPONS[weapon].crossbow};
+    talents:structuredClone(sheet.talents||{}),path:sheet.path,pathRank:sheet.pathRank||0,wp:c.kind==='pc'?c.runtime?.wp||0:0,kind:c.kind,npc:c.kind==='npc',kin:sheet.kin,visual:c.visual,magic:{},ingredients:{torch:0,blood:0,hand:0},ready:!!BATTLE_WEAPONS[weapon].crossbow};
    u.maxArmor=u.armor;
    u.armor=Math.min(u.armor,c.runtime?.armor??u.armor);u.gear=Math.min(u.gear,c.runtime?.gearBonus??u.gear);
    if(equipment){
@@ -33,21 +35,26 @@ try{
   // Find legal, distinct starting cells within the inherited map.
   const used=new Set();for(const u of battle.units){let cell;for(let r=0;r<9&&!cell;r++)for(let q=u.team==='A'?0:7;q<(u.team==='A'?6:13);q++)if(!used.has(`${q},${r}`)&&battle.terrain[`${q},${r}`]!=='wall'){cell={q,r};break;}if(!cell)throw Error('Нет места для отряда.');Object.assign(u,cell);used.add(`${u.q},${u.r}`);}
  }else{
-  battle=validateBattle(payload.battle);battle.diceEvents=[];battle.commandLog=[];const c=payload.command,action=c.action;
+  battle=riskCommand(validateBattle(payload.battle),payload.command,(battle,c,d)=>{
+  battle.diceEvents=[];battle.commandLog=[];const action=c.action;
+  if(battle.initiativeDraw&&!['initiativeChoose'].includes(action))throw Error('Сначала выберите карту инициативы.');
+  if(action.startsWith('initiative')||action==='start'&&c.interactive){initiative(battle,c,d);return;}
+  if(battle.phase==='combat'&&!['defense'].includes(action)){battle.roundStarted=true;delete battle.initiativeOffer;}
   if(activeUnit(battle)?.pendingMove&&action!=='resolveLoad')throw Error('Сначала выберите последствие перегруза.');
   if(activeUnit(battle)?.monster&&['slash','stab','shoot','punch','shove','cast','ai'].includes(action))throw Error('Чудовище использует свою таблицу атак.');
-  if(action==='start')startBattle(battle);
+  if(action==='start')startBattle(battle,d);
   else if(action==='end')endTurn(battle);
-  else if(action==='ai')aiTurn(battle);
-  else if(action==='monsterAttack')monsterAttack(battle,c.target,c.index,c.push);
-  else if(action==='move')moveUnit(battle,c.unit,c.q,c.r,c.retreat===true);
-  else if(action==='resolveLoad')resolveLoad(battle,c.proceed===true);
+  else if(action==='ai')aiTurn(battle,d);
+  else if(action==='monsterAttack')monsterAttack(battle,c.target,c.index,c.push,d);
+  else if(action==='move')moveUnit(battle,c.unit,c.q,c.r,c.retreat===true,d);
+  else if(action==='resolveLoad')resolveLoad(battle,c.proceed===true,d);
   else if(action==='defense'){const u=battle.units.find(u=>u.id===c.unit);if(!u||!['none','dodge','dodgeStand','weapon','shield'].includes(c.value))throw Error('Неизвестная защита.');u.defense=c.value;}
-  else if(['slash','stab','shoot','punch','shove'].includes(action))attack(battle,c.target,action,{push:c.push===true});
-  else if(action==='cast')castSpell(battle,c.spell,c.target,{wp:c.wp,safe:c.safe===true,ingredient:c.ingredient===true,extend:c.extend===true});
+  else if(['slash','stab','shoot','punch','shove'].includes(action))attack(battle,c.target,action,{push:!c.interactive&&c.push===true,extraAttack:c.extraAttack===true},d);
+  else if(action==='cast')castSpell(battle,c.spell,c.target,{wp:c.wp,safe:c.safe===true,ingredient:c.ingredient===true,extend:c.extend===true},d);
   else if(action==='resolve')resolveMishap(battle,c.note,c.target);
-  else if(['stand','extinguish','cover','ready','aim','swing'].includes(action))simpleAction(battle,action);
+  else if(['stand','extinguish','cover','ready','aim','swing'].includes(action))simpleAction(battle,action,d);
   else throw Error('Неизвестное действие боя.');
+  });
   for(const u of battle.units)if(u.npc||u.monster)u.wp=0;
  }
  for(const u of battle.units)if(u.equipmentIds)u.equipmentWear=[...(u.equipmentIds.weapon?[{id:u.equipmentIds.weapon,maximum:u.weaponStats.bonus,current:u.gear}]:[]),...(u.equipmentIds.shield?[{id:u.equipmentIds.shield,maximum:u.shieldMaximum,current:u.shield}]:[]),...(u.armorSources||[])];

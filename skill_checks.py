@@ -14,11 +14,12 @@ def signature(c,item):return json.dumps([c['sheet'],c['runtime']['current'],c['r
 def artifact_successes(r):return sum(successes(v) for v in r['artifact'])+sum(successes(a['value']) for a in r.get('artifacts',[]))
 def count(r):return max(0,r['base'].count(6)+r['gear'].count(6)+r['skillDice'].count(6)*(-1 if r['negative'] else 1)+artifact_successes(r)-r.get('penalty',[]).count(6))
 
-def apply(room,s,data):
+def apply(room,s,data,opposed=False):
     private=visibility(s,data)
     c=character(room,data.get('character'));editable(room,dict(kind='character',id=c['id']),s);ensure(room,c['id'])
     rt=c['runtime']
     if data['action']=='characterRoll':
+        if not opposed and any(not p.get('done') and any(p[k]['character']==c['id'] for k in ('attacker','defender')) for p in room.get('opposedChecks',[])):raise ValueError('Сначала завершите или отмените встречную проверку этого персонажа.')
         if data.get('revision')!=room['revision']:raise ValueError('Состояние изменилось. Проверьте состав броска и повторите.')
         skill=data.get('skill');mod=data.get('modifier',0)
         if skill not in ATTRS or type(mod)!=int or not -10<=mod<=10:raise ValueError('Проверьте навык и модификатор.')
@@ -41,9 +42,13 @@ def apply(room,s,data):
         r=rt.get('lastCheck')
         secret=room.get('gmChecks',{}).get(c['id']) if s['role']=='gm' else None
         if secret and secret['id']==data.get('roll'):r=secret
-        if not r or r['id']!=data.get('roll') or r['pushed']:raise ValueError('Этот бросок уже форсирован или устарел.')
+        if not r or r['id']!=data.get('roll') or r['pushed'] or r.get('accepted'):raise ValueError('Этот бросок уже форсирован или устарел.')
+        if r.get('opposed') and not opposed:raise ValueError('Завершите бросок через встречную проверку; защитник не может идти на риск.')
         item=next((i for i in owned(room,c['id']) if i['id']==r['item']),None)
         if r['signature']!=signature(c,item) or r['item'] and not item:raise ValueError('Герой или предмет изменился после броска. Форсирование недоступно.')
+        if data['action']=='characterAccept':
+            r['accepted']=True
+            return
         r.setdefault('penalty',[])
         r['held']={key:[v==6 or key not in ('skillDice','penalty') and v==1 for v in r[key]] for key in ('base','skillDice','gear','penalty')}
         r['held']['artifact']=[v>=6 for v in r['artifact']]
@@ -67,7 +72,8 @@ def apply(room,s,data):
     if r['sides']:message+=f" + D{r['sides']}"
     if r.get('artifacts'):message+=' + '+', '.join(f"D{a['sides']} [{a['value']}]" for a in r['artifacts'])
     message+=f". Кости: база {r['base']}, навык {r['skillDice']}, предмет {r['gear']}, штраф {r.get('penalty',[])}, артефакт {r['artifact']}. {result}"
+    if r['pushed']:result+=f" Риск: {r['attribute']} −{r['damage']}, износ −{r['wear']}."
     if r['pushed']:message+=f" Форсирование: урон {r['damage']}, износ {r['wear']}."
     if r['note']:message+=' '+r['note']
-    publish(room,c['name'],'Форсирование' if r['pushed'] else 'Проверка навыка',pools(r),result,r.get('private',False),message)
+    r['diceEvent']=publish(room,c['name'],'Пойти на риск' if r['pushed'] else 'Проверка навыка',pools(r),result,r.get('private',False),message,risk=None if r['pushed'] else dict(action='character',character=c['id'],roll=r['id'],attribute=r['attribute']))
     room['journey']['gmReady']=False

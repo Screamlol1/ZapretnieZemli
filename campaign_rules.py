@@ -1,3 +1,4 @@
+import journey_risk
 from dice_pools import skill_counts, result_text
 from dice_events import publish as publish_dice, pools as dice_pools
 """Journey and stronghold state. PH chapters 7–8; complex consequences stay with GM."""
@@ -63,7 +64,7 @@ def adjacent(a,b,room=None):
     dq=bq-aq; dr=b['y']-a['y']
     return max(abs(dq),abs(dr),abs(dq+dr))==1
 
-def dice(n, sides=6): return [secrets.randbelow(sides)+1 for _ in range(n)]
+def dice(n, sides=6): return journey_risk.draw(n,sides,lambda n,sides:[secrets.randbelow(sides)+1 for _ in range(n)])
 
 def journal(room,text): room['log'].append(dict(name='Путешествие',text=text))
 
@@ -94,11 +95,13 @@ def participants(room):
 
 def try_cycle(room):
     t=state(room)
-    if not t['automatic'] or not t['party']:return
+    if room.get('journeyRisk') or not t['automatic'] or not t['party']:return
     if t['phase']=='planning' and t['gmReady'] and not t['pending'] and all(cid in t['plans'] for cid in t['party']):
         # Validate and execute on a copy: a bad route never commits partial rolls or damage.
         trial=deepcopy(room)
-        try:advance(trial,dict(path=t['route']),defer_clock=True)
+        try:
+            if t.get('interactiveRisk'):journey_risk.resolve(trial)
+            else:advance(trial,dict(path=t['route']),defer_clock=True)
         except ValueError as e:
             t['blocker']=str(e);t['gmReady']=False;return
         room.update(trial);t=room['journey'];t.update(phase='resolving',completed={},blocker='')
@@ -128,6 +131,7 @@ def counts_as_rest(c,p):
     return p.get('job') in ('rest','sleep') or p.get('role')=='lead' and talents.get('pathfinder',0)>=2 or p.get('job')=='fish' and talents.get('fisher',0)>=2 or p.get('job') in ('forageFood','forageWater') and talents.get('herbalist',0)>=2 or p.get('job')=='hunt' and talents.get('masterhunt',0)>=2 or p.get('job')=='hike' and talents.get('wanderer',0)>=3
 
 def apply(room,s,data):
+    if data['action']=='travelRisk':return journey_risk.apply(room,s,data)
     action=data['action']; gm=s['role']=='gm'; t=state(room)
     who='gm' if gm else s['owner']
     cycle=[t['day'],t['quarter'],t['cycleId']]
@@ -193,6 +197,7 @@ def apply(room,s,data):
         t['planVersions'][cid]=t['planVersions'].get(cid,0)+1
         t['blocker']=''
     elif action in ('travelRoute','travelReady'):
+        if data.get('interactiveRisk') is True:t['interactiveRisk']=True
         if 'path' in data:
             path=data['path']
             if not isinstance(path,list) or len(path)>3:raise ValueError('Маршрут: до трёх гексов.')
@@ -352,6 +357,7 @@ def advance(room,data,defer_clock=False):
             artifact=dice(1,8)[0];r['artifact']=artifact;r['artifacts'].append(dict(sides=8,value=artifact))
         r['hits']=max(0,r['netHits']+sum(max(0,a['value']//2-2) if a['value']>=6 else 0 for a in r['artifacts']))
         r['diceEvent']=publish_dice(room,c['name'],'Путешествие · '+skill,dice_pools(r),result_text(r['netHits']+r['penalty'].count(6)+sum(max(0,a['value']//2-2) for a in r['artifacts']),r['penalty'].count(6)),skill=='scout' or bool(c.get('hidden')))
+        journey_risk.check(room,c,r,selected_item)
         rolls.append(r);return r
     if hiking:
         overloaded=[c for c in party if c.get('inventoryInitialized') and inventory_load(room,c)['overloaded']]
