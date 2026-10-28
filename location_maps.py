@@ -5,6 +5,7 @@ import math
 import random
 import secrets
 from campaign_rules import coordinate
+from location_editor import edit as edit_plan
 
 KINDS = {'settlement', 'camp', 'fortress', 'ruins', 'dungeon', 'cave'}
 ART_IDS = ('thatch','shingle','tile','barn','tavern','smithy','chapel','manor','keep','tower','gate','ruin','tent','pavilion','supplies','well','market','fire','bridge','oak','pine','rocks','room','cave')
@@ -160,6 +161,8 @@ def apply(room, session, data):
             _,cell=source(room,m['source'])
             if cell.get('hidden') or cell.get('siteHidden'):raise ValueError('Сначала откройте само место игрокам на общей карте.')
         m['revealed']=data['revealed']
+    elif action=='locationMapEdit':
+        edit_plan(room,m,data,ART_IDS)
     elif action=='locationMapFeature':
         f=next((f for f in m['features'] if f['id']==data.get('feature')),None)
         if not f:raise ValueError('Объект не найден.')
@@ -201,7 +204,9 @@ def redact(room):
         safe=copy.deepcopy(m);safe.pop('settings',None) # Seed could reconstruct secret rooms.
         ids={f['id'] for f in safe['features'] if not f['secret']}
         safe['features']=[{k:v for k,v in f.items() if k not in ('gmNote','secret')} for f in safe['features'] if f['id'] in ids]
-        safe['paths']=[p for p in safe['paths'] if all(i in ids for i in p['refs'])]
+        safe['paths']=[{k:v for k,v in p.items() if k!='secret'} for p in safe['paths'] if not p.get('secret') and all(i in ids for i in p['refs'])]
+        actors={c['id'] for c in room['characters'] if not c.get('hidden')}
+        safe['tokens']=[{k:v for k,v in t.items() if k!='secret'} for t in safe.get('tokens',[]) if not t.get('secret') and t['characterId'] in actors]
         visible.append(safe)
     room['locationMaps']=visible;ids={m['id'] for m in visible}
     for cell in room['maps']['world'].values():

@@ -110,4 +110,62 @@ class LocationMapTests(unittest.TestCase):
         self.assertEqual(restored['features'],original['features']);self.assertGreater(restored['version'],changed['version'])
         with self.assertRaises(ValueError):self.edit(changed)
 
+    def manual(self,m,**data):
+        return self.game.action(self.gs,dict(action='locationMapEdit',id=m['id'],version=m['version'],**data))['locationMaps'][0]
+
+    def test_manual_objects_move_delete_and_stale_edits(self):
+        m=self.create();n=len(m['features'])
+        m=self.manual(m,op='add',art='tavern',widthMeters=12,heightMeters=10,point=[200,200],label='Новая таверна')
+        f=m['features'][-1];self.assertEqual((f['w'],f['h']),(48,40));self.assertEqual(len(m['features']),n+1)
+        old=m;m=self.manual(m,op='move',kind='feature',target=f['id'],point=[300,320])
+        self.assertEqual((m['features'][-1]['x'],m['features'][-1]['y']),(300,320))
+        with self.assertRaises(ValueError):self.manual(old,op='remove',kind='feature',target=f['id'])
+        with self.assertRaises(PermissionError):self.game.action(self.ps,dict(action='locationMapEdit',id=m['id'],version=m['version'],op='remove',kind='feature',target=f['id']))
+        for data in [dict(op='move',kind='feature',target=f['id'],point=[m['width'],20]),dict(op='add',art='unknown',point=[200,200]),dict(op='move',kind='feature',target=f['id'],point=[float('nan'),20]),dict(op='path',style='wall',points=[[1,1],[1,1]]),dict(op='path',style='wall',points=[[0,0],[-1,4]])]:
+            with self.assertRaises(ValueError):self.manual(m,**data)
+            self.assertEqual(self.game.view(self.gs)['locationMaps'][0],m)
+        m=self.manual(m,op='remove',kind='feature',target=f['id']);self.assertEqual(len(m['features']),n)
+
+    def test_manual_corridors_follow_rooms_and_are_removed_with_rooms(self):
+        m=self.game.action(self.gs,dict(action='locationMapGenerate',title='Залы',settings=dict(kind='cave',seed='editor')))['locationMaps'][0]
+        f=m['features'][0];paths=json.loads(json.dumps(m['paths']));points=json.loads(json.dumps(f['points']))
+        m=self.manual(m,op='move',kind='feature',target=f['id'],point=[f['x']+10,f['y']+20])
+        self.assertEqual(m['features'][0]['points'],[[x+10,y+20] for x,y in points])
+        for old,new in zip(paths,m['paths']):
+            if f['id'] in old['refs']:
+                i=0 if len(old['refs'])>1 and old['refs'][0]==f['id'] else -1
+                self.assertEqual(new['points'][i],[old['points'][i][0]+10,old['points'][i][1]+20])
+        m=self.manual(m,op='remove',kind='feature',target=f['id'])
+        self.assertFalse(any(f['id'] in p['refs'] for p in m['paths']))
+
+    def test_manual_paths_tokens_privacy_and_restart(self):
+        public=support.CampaignTests.make_npc(self)
+        hidden=support.CampaignTests.make_npc(self,hidden=True)
+        m=self.create()
+        for style in ('road','wall','palisade','passage'):
+            m=self.manual(m,op='path',style=style,points=[[100,100],[200,100],[200,200]],secret=style=='passage')
+        for c,secret in [(public,False),(hidden,False)]:
+            m=self.manual(m,op='token',characterId=c['id'],point=[150,150],secret=secret)
+        with self.assertRaises(ValueError):self.manual(m,op='token',characterId=public['id'],point=[200,200])
+        token=m['tokens'][0];m=self.manual(m,op='move',kind='token',target=token['id'],point=[250,260])
+        m=self.game.action(self.gs,dict(action='locationMapReveal',id=m['id'],version=m['version'],revealed=True))['locationMaps'][0]
+        safe=self.game.view(self.ps)['locationMaps'][0]
+        self.assertEqual([t['characterId'] for t in safe['tokens']],[public['id']]);self.assertEqual(safe['tokens'][0]['x'],250)
+        self.assertFalse(any(p.get('secret') or p['style']=='passage' for p in safe['paths']))
+        self.assertEqual(capture(self.game.room(self.gs['room']),'campaign')['locationMaps'][0],m)
+        self.game.db.close();self.game=Game(self.path,reference_root=Path(self.tmp.name)/'local-assets')
+        auth=self.game.reconnect(dict(code=self.gm['code'],resume=self.gm['resume']));self.gs=self.game.session(auth['token'])
+        self.assertEqual(self.game.view(self.gs)['locationMaps'][0],m)
+        m=self.manual(m,op='remove',kind='token',target=token['id'])
+        m=self.manual(m,op='token',characterId=public['id'],point=[100,100],secret=True)
+        # Explicitly secret placement stays hidden even for a public character.
+        from location_maps import redact
+        room=self.game.room(self.gs['room']);redact(room);self.assertEqual(room['locationMaps'][0]['tokens'],[])
+        m=self.manual(m,op='remove',kind='path',target=len(m['paths'])-1)
+        self.assertFalse(any(p['style']=='passage' for p in m['paths']))
+        self.game.action(self.gs,dict(action='deleteCharacter',id=hidden['id']))
+        changed=self.game.view(self.gs)['locationMaps'][0]
+        self.assertGreater(changed['version'],m['version'])
+        self.assertFalse(any(t['characterId']==hidden['id'] for t in changed['tokens']))
+
 if __name__=='__main__':unittest.main()

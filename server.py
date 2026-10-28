@@ -325,6 +325,10 @@ class Game:
                     item['location']=dict(kind='treasury',id='');item['version']+=1
             room['characters'] = [c for c in room['characters'] if c['id']!=data.get('id')]
             room['tokens']=[t for t in room['tokens'] if t.get('characterId')!=data.get('id')]
+            for plan in room.get('locationMaps',[]):
+                kept=[t for t in plan.get('tokens',[]) if t.get('characterId')!=data.get('id')]
+                if len(kept)!=len(plan.get('tokens',[])):
+                    plan['tokens']=kept;plan['version']+=1
         elif action=='worldLayout':
             layout=data.get('layout')
             if layout not in ('legacy','ravenland'):raise ValueError('Неизвестная сетка.')

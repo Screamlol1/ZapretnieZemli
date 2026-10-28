@@ -9,3 +9,8 @@ assert.deepEqual(passageDoors(bent,m.features[0]),[{x:150,y:90,dx:1,dy:0}]);
 assert.deepEqual(passageDoors(bent,m.features[1]),[{x:350,y:90,dx:-1,dy:0}]);
 assert.deepEqual(passageDoors(playerPlan(bent),m.features[0]),[]);
 console.log('Location maps: public/export redaction, hidden passages, escaped SVG and immutable preview passed.');
+
+const manual={...m,paths:[...m.paths,{style:'wall',refs:[],points:[[10,10],[50,50]],secret:true}],tokens:[{id:'t',x:100,y:100,name:'<Hero>',kind:'pc'},{id:'s',x:200,y:100,name:'SECRET-TOKEN',secret:true}]};
+const publicManual=playerPlan(manual);assert.equal(publicManual.tokens.length,1);assert.equal(publicManual.paths.length,0);
+const exported=locationSVG(manual,{playerView:true,interactive:false});assert.ok(exported.includes('&lt;Hero&gt;'));assert.ok(!exported.includes('SECRET-TOKEN'));assert.ok(!exported.includes('data-location-token'));assert.ok(!exported.includes('data-location-path'));
+assert.ok(locationSVG(manual).includes('data-location-token="t"'));assert.equal(manual.tokens.length,2);

@@ -1,3 +1,5 @@
+import {locationEditor} from './location-editor.js';
+import {spriteURL} from './appearance.js';
 import {locationArt,featureArt,artPreview,embeddedAtlas} from './location-art.js';
 import {locationKinds,locationSVG,playerPlan,esc} from './location-render.js';
 import {label as hexLabel} from './world-hex.js';
@@ -9,7 +11,10 @@ export function locationMapsUI(getState,action,show){
  const maps=()=>getState()?.locationMaps||[],current=()=>maps().find(m=>m.id===selected),gm=()=>getState()?.me.role==='gm';
  const error=message=>$('[data-location-error]').textContent=message;
  const options=()=>({grid:$('[data-location-grid]').checked,labels:$('[data-location-labels]').checked,selected:featureId,playerView:$('[data-location-player-view]').checked&&gm()});
- const seenMap=()=>{const m=current();return m&&$('[data-location-player-view]').checked?playerPlan(m):m;};
+ const sprites=new Map();
+ function displayMap(m){return m&&{...m,tokens:(m.tokens||[]).flatMap(t=>{const c=getState().characters.find(c=>c.id===t.characterId);return c?[{...t,name:c.name,kind:c.kind,secret:t.secret||c.hidden,image:sprites.get(JSON.stringify([c.id,c.visual,c.sheet?.kin||c.kin]))}]:[];})};}
+ const seenMap=()=>{const m=displayMap(current());return m&&$('[data-location-player-view]').checked?playerPlan(m):m;};
+ const editor=locationEditor({root,viewport,canvas,current,getState,run,draw,error,canLeave:()=>{if(dirty&&!confirm('Отменить несохранённые изменения описания?'))return false;dirty=false;return true;}});
  function controls(){const kind=form.elements.kind.value,above=!['dungeon','cave'].includes(kind);form.elements.water.disabled=!above;form.elements.walls.disabled=!above||kind==='ruins';if(!above)form.elements.water.checked=form.elements.walls.checked=false;if(kind==='fortress'){form.elements.walls.checked=true;form.elements.walls.disabled=true;}}
  function sourceText(m){const src=m?.source||source;return src.kind==='hex'?'Привязана к гексу '+hexLabel(src):src.kind==='workshop'?'Карта заготовки: сначала разместите место на общей карте.':'Отдельная карта кампании · например, сцена встречи или план логова.';}
  function generator(m=null,spec={}){
@@ -20,7 +25,7 @@ export function locationMapsUI(getState,action,show){
  }
  function size(){const svg=canvas.querySelector('svg'),m=current();if(!svg||!m||!viewport.clientWidth)return;viewport.style.height=Math.min(innerHeight*.68,Math.max(260,(viewport.clientWidth-2)*m.height/m.width))+'px';const fitted=Math.min(viewport.clientWidth-2,(viewport.clientHeight-2)*m.width/m.height);svg.style.width=fitted*zoom+'px';svg.style.height='auto';svg.style.marginInline='auto';canvas.style.width=Math.max(viewport.clientWidth-2,fitted*zoom)+'px';}
  function draw(){const m=seenMap();if(!m)return;const x=viewport.scrollLeft,y=viewport.scrollTop;canvas.innerHTML=locationSVG(m,options());size();viewport.scrollLeft=x;viewport.scrollTop=y;
-  $('[data-location-legend]').innerHTML=m.features.map((f,i)=>f.label?`<button type="button" data-location-pick="${f.id}">${i+1}. ${esc(f.label)}${f.secret?' · скрыто':''}</button>`:'').join('')||'<p>Нажмите объект на плане, чтобы дать ему название.</p>';
+  $('[data-location-legend]').innerHTML=m.features.map((f,i)=>f.label?`<button type="button" data-location-pick="${f.id}">${i+1}. ${esc(f.label)}${f.secret?' · скрыто':''}</button>`:'').join('')||'<p>Нажмите объект на плане, чтобы дать ему название.</p>';editor.render();
  }
  function featurePanel(){
   const m=seenMap(),f=m?.features.find(f=>f.id===featureId),panel=$('[data-location-feature-panel]');if(!f){panel.innerHTML='<h3>Осмотрите место</h3><p>Выберите здание, палатку, башню или комнату. Здесь появятся описание и заметки.</p>';dirty=false;return;}
@@ -29,10 +34,11 @@ export function locationMapsUI(getState,action,show){
  }
  function selectFeature(id){if(dirty&&!confirm('Отменить несохранённые изменения описания?'))return;featureId=id;draw();featurePanel();}
  function open(spec={}){
+  if(!editor.canLeave()){$('[data-location-library]').value=selected;return;}
   if(dirty&&!confirm('Отменить несохранённые изменения описания?')){$('[data-location-library]').value=selected;return;}
   let m=spec.id&&maps().find(m=>m.id===spec.id);
   if(!m&&spec.source){let src=spec.source;if(src.kind==='workshop'){const e=getState().workshop?.find(e=>e.id===src.id);if(e?.published?.kind==='place')src={kind:'hex',x:e.published.x,y:e.published.y};}m=maps().find(m=>m.source.kind===src.kind&&(src.kind==='hex'?m.source.x===src.x&&m.source.y===src.y:src.kind==='workshop'?m.source.id===src.id:false));source=src;}
-  selected=m?.id||'';source=m?.source||spec.source||{kind:'library'};shown='';featureId='';dirty=false;zoom=1;last='';error('');show();generator(m,spec);$('[data-location-generator]').open=!m;render();
+  editor.reset();selected=m?.id||'';source=m?.source||spec.source||{kind:'library'};shown='';featureId='';dirty=false;zoom=1;last='';error('');show();generator(m,spec);$('[data-location-generator]').open=!m;render();
  }
  async function run(data){if(busy)return false;busy=true;root.querySelectorAll('button').forEach(b=>b.disabled=true);try{const ok=await action(data);if(!ok)error(document.getElementById('error').textContent||'Не удалось сохранить карту.');else error('');return ok;}finally{busy=false;root.querySelectorAll('button').forEach(b=>b.disabled=false);}}
  form.onsubmit=async e=>{
@@ -45,17 +51,17 @@ export function locationMapsUI(getState,action,show){
  root.addEventListener('submit',async e=>{if(!e.target.hasAttribute('data-location-feature-form'))return;e.preventDefault();const v=new FormData(e.target),m=current();if(await run({action:'locationMapFeature',id:m.id,version:featureVersion,feature:featureId,...Object.fromEntries(v),widthMeters:Number(v.get('widthMeters')),heightMeters:Number(v.get('heightMeters')),secret:v.has('secret')})){dirty=false;featurePanel();}});
  function zoomTo(value,point){const svg=canvas.querySelector('svg');if(!svg)return;const rect=svg.getBoundingClientRect(),box=viewport.getBoundingClientRect(),px=point?.x??box.left+viewport.clientWidth/2,py=point?.y??box.top+viewport.clientHeight/2,ax=(px-rect.left)/rect.width,ay=(py-rect.top)/rect.height;zoom=Math.max(1,Math.min(6,value));size();const next=svg.getBoundingClientRect();viewport.scrollLeft+=next.left+ax*next.width-px;viewport.scrollTop+=next.top+ay*next.height-py;}
  viewport.addEventListener('wheel',e=>{if(e.ctrlKey||e.metaKey)return;e.preventDefault();zoomTo(zoom*Math.exp(-Math.max(-100,Math.min(100,e.deltaY))*.003),{x:e.clientX,y:e.clientY});},{passive:false});
- viewport.addEventListener('pointerdown',e=>{if(e.button!==0||zoom<=1)return;drag={id:e.pointerId,x:e.clientX,y:e.clientY,left:viewport.scrollLeft,top:viewport.scrollTop,moved:false};});
+ viewport.addEventListener('pointerdown',e=>{if(editor.active()||e.button!==0||zoom<=1)return;drag={id:e.pointerId,x:e.clientX,y:e.clientY,left:viewport.scrollLeft,top:viewport.scrollTop,moved:false};});
  viewport.addEventListener('pointermove',e=>{if(!drag||e.pointerId!==drag.id)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(!drag.moved&&Math.hypot(dx,dy)>5){drag.moved=true;viewport.setPointerCapture(e.pointerId);}if(drag.moved){e.preventDefault();viewport.scrollLeft=drag.left-dx;viewport.scrollTop=drag.top-dy;}});
  function end(){if(drag){suppress=drag.moved;if(viewport.hasPointerCapture(drag.id))viewport.releasePointerCapture(drag.id);drag=null;}}
  viewport.addEventListener('pointerup',end);viewport.addEventListener('pointercancel',end);window.addEventListener('blur',end);
  viewport.addEventListener('click',e=>{if(suppress){suppress=false;e.preventDefault();e.stopImmediatePropagation();}},true);
  viewport.addEventListener('keydown',e=>{const f=e.target.closest('[data-location-feature]');if(f&&['Enter',' '].includes(e.key)){e.preventDefault();selectFeature(f.dataset.locationFeature);}});
  async function download(png){
-  const m=current();if(!m)return;let url;try{const svg=locationSVG(m,{grid:$('[data-location-grid]').checked,labels:true,playerView:true,interactive:false,atlas:await embeddedAtlas()}),blob=new Blob([svg],{type:'image/svg+xml;charset=utf-8'});url=URL.createObjectURL(blob);
+  const m=current();if(!m)return;let url;try{await loadSprites();const svg=locationSVG(displayMap(m),{grid:$('[data-location-grid]').checked,labels:true,playerView:true,interactive:false,atlas:await embeddedAtlas()}),blob=new Blob([svg],{type:'image/svg+xml;charset=utf-8'});url=URL.createObjectURL(blob);
   if(png){const img=new Image();await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(Error('Не удалось подготовить PNG.'));img.src=url;});const c=document.createElement('canvas');c.width=img.width;c.height=img.height;c.getContext('2d').drawImage(img,0,0);const pngBlob=await new Promise(resolve=>c.toBlob(resolve,'image/png'));if(!pngBlob)throw Error('Не удалось сохранить PNG.');URL.revokeObjectURL(url);url=URL.createObjectURL(pngBlob);}const a=document.createElement('a');a.href=url;a.download=(m.title.replace(/[<>:"/\\|?*]/g,'-')||'location')+(png?'.png':'.svg');a.click();}catch(e){error(e.message);}finally{if(url)setTimeout(()=>URL.revokeObjectURL(url),1500);}
  }
- root.addEventListener('change',e=>{if(e.target.matches('[data-location-library]'))open({id:e.target.value});if(e.target.matches('[data-location-grid],[data-location-labels]'))draw();if(e.target.matches('[data-location-player-view]')){if(dirty&&!confirm('Отменить несохранённые изменения описания?')){e.target.checked=!e.target.checked;return;}featureId='';dirty=false;draw();featurePanel();}});
+ root.addEventListener('change',e=>{if(e.target.matches('[data-location-library]'))open({id:e.target.value});if(e.target.matches('[data-location-grid],[data-location-labels]'))draw();if(e.target.matches('[data-location-player-view]')){if(dirty&&!confirm('Отменить несохранённые изменения описания?')){e.target.checked=!e.target.checked;return;}editor.reset();featureId='';dirty=false;draw();featurePanel();}});
  root.addEventListener('click',async e=>{const f=e.target.closest('[data-location-feature]');if(f){selectFeature(f.dataset.locationFeature);return;}const b=e.target.closest('button');if(!b||busy)return;const d=b.dataset,m=current();
   if(d.locationPick)selectFeature(d.locationPick);
   if('locationNew'in d)open();
@@ -72,10 +78,12 @@ export function locationMapsUI(getState,action,show){
   const optionsHTML='<option value="">Выберите карту</option>'+maps().map(m=>`<option value="${m.id}">${esc(m.title)} · ${locationKinds[m.kind]}${isGM&&!m.revealed?' · скрыта':''}</option>`).join('');
   const lib=$('[data-location-library]');if(lib.innerHTML!==optionsHTML)lib.innerHTML=optionsHTML;lib.value=selected;
   const m=current();$('[data-location-empty]').hidden=!!m;$('[data-location-content]').hidden=!m;
-  if(!m){canvas.innerHTML='';$('[data-location-feature-panel]').innerHTML='';$('[data-location-legend]').innerHTML='';last='';return;}
+  if(!m){canvas.innerHTML='';$('[data-location-feature-panel]').innerHTML='';$('[data-location-legend]').innerHTML='';last='';editor.render();return;}
   if(shown!==m.id){shown=m.id;generator(m);lib.value=m.id;}
   $('[data-location-title]').textContent=m.title;$('[data-location-status]').textContent=isGM?(m.revealed?'Карта открыта игрокам':'Карта скрыта от игроков'):'Карта открыта Мастером';$('[data-location-reveal]').textContent=m.revealed?'Скрыть карту':'Показать игрокам';$('[data-location-source]').textContent=sourceText(m);
-  const signature=JSON.stringify(m);if(signature!==last){last=signature;draw();if(!dirty)featurePanel();else if(featureVersion!==m.version){const warning=$('[data-location-conflict]');if(warning)warning.textContent='Карта обновлена. Ваш текст сохранён в форме; загрузите актуальное описание перед изменением.';}}
+  editor.render();loadSprites();const signature=JSON.stringify([m,getState().characters.map(c=>[c.id,c.name,c.hidden,c.kind,c.visual,c.sheet?.kin||c.kin])]);if(signature!==last){last=signature;draw();if(!dirty)featurePanel();else if(featureVersion!==m.version){const warning=$('[data-location-conflict]');if(warning)warning.textContent='Карта обновлена. Ваш текст сохранён в форме; загрузите актуальное описание перед изменением.';}}
  }
+ const loading=new Map();
+ async function loadSprites(){await Promise.all((getState()?.characters||[]).filter(c=>current()?.tokens?.some(t=>t.characterId===c.id)).map(async c=>{const key=JSON.stringify([c.id,c.visual,c.sheet?.kin||c.kin]);if(sprites.has(key))return;if(!loading.has(key))loading.set(key,spriteURL(c).then(url=>{sprites.set(key,url);if(!editor.isDragging())draw();}).catch(()=>{sprites.set(key,'');}).finally(()=>loading.delete(key)));await loading.get(key);}));}
  new ResizeObserver(size).observe(viewport);generator();return {render,open};
 }
