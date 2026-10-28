@@ -7,6 +7,19 @@ export function playerPlan(map){
  return {...safe,features:map.features.filter(f=>visible.has(f.id)).map(({gmNote,secret,...f})=>f),paths:map.paths.filter(p=>p.refs.every(id=>visible.has(id)))};
 }
 const points=p=>p.map(a=>a.join(',')).join(' ');
+export function passageDoors(map,f){
+ const result=[],inside=([x,y])=>x>=f.x&&x<=f.x+f.w&&y>=f.y&&y<=f.y+f.h;
+ for(const p of map.paths.filter(p=>p.style==='passage'&&p.refs.includes(f.id))){
+  const pts=p.refs[0]===f.id&&p.refs.length>1?p.points:[...p.points].reverse();
+  for(let i=1;i<pts.length;i++){
+   const a=pts[i-1],b=pts[i];if(!inside(a)||inside(b))continue;
+   const dx=b[0]-a[0],dy=b[1]-a[1];
+   const tx=dx>0?(f.x+f.w-a[0])/dx:dx<0?(f.x-a[0])/dx:Infinity,ty=dy>0?(f.y+f.h-a[1])/dy:dy<0?(f.y-a[1])/dy:Infinity,t=Math.min(tx,ty);
+   result.push({x:a[0]+dx*t,y:a[1]+dy*t,dx:Math.sign(dx),dy:Math.sign(dy)});break;
+  }
+ }
+ return result;
+}
 export function locationSVG(map,{grid=false,labels=true,selected='',playerView=false,interactive=true,atlas=atlasURL}={}){
  const m=playerView?playerPlan(map):map,underground=['dungeon','cave'].includes(m.kind),bg=underground?'#666858':'#d8cba8',floor='#d5c9a6';
  const unit=m.cellSize/m.metersPerCell;
@@ -20,11 +33,7 @@ export function locationSVG(map,{grid=false,labels=true,selected='',playerView=f
   const {x,y,w,h}=f,cx=x+w/2,cy=y+h/2;
   const hit=f.shape==='polygon'?`<polygon points="${points(f.points)}"/>`:f.shape==='ellipse'?`<ellipse cx="${cx}" cy="${cy}" rx="${w/2}" ry="${h/2}"/>`:`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="2"/>`;
   const picture=artSprite(featureArt(f),x,y,w,h,'location-art-atlas',['room','cave','bridge'].includes(f.style));
-  const doors=underground?m.paths.filter(p=>p.style==='passage'&&p.refs.includes(f.id)).map(p=>{
-   const pts=p.refs[0]===f.id&&p.refs.length>1?p.points:[...p.points].reverse(),start=pts[0],next=pts.find(a=>Math.hypot(a[0]-start[0],a[1]-start[1])>1);if(!next)return '';
-   const dx=Math.abs(next[0]-start[0])>=Math.abs(next[1]-start[1])?Math.sign(next[0]-start[0]):0,dy=dx?0:Math.sign(next[1]-start[1]),ex=cx+dx*w/2,ey=cy+dy*h/2;
-   return `<path d="M${ex-dx*unit*1.5} ${ey-dy*unit*1.5}l${dx*unit*3} ${dy*unit*3}" stroke="url(#location-stone)" stroke-width="${3*unit}" pointer-events="none"/>`;
-  }).join(''):'';
+  const doors=underground?passageDoors(m,f).map(({x,y,dx,dy})=>`<path d="M${x-dx*unit*1.5} ${y-dy*unit*1.5}l${dx*unit*3} ${dy*unit*3}" stroke="url(#location-stone)" stroke-width="${3*unit}" pointer-events="none"/>`).join(''):'';
   const pinY=underground?cy:y+h+7;
   const pin=labels&&f.label?`<g pointer-events="none"><circle cx="${cx}" cy="${pinY}" r="8" fill="#f0e5c6" stroke="#534d38" stroke-width="1.2"/><text x="${cx}" y="${pinY+3}" text-anchor="middle" font-size="9" font-family="Georgia,serif" fill="#302f24">${i+1}</text></g>`:'';
   return `<g ${interactive?`data-location-feature="${esc(f.id)}" tabindex="0" role="button" aria-label="${esc(f.label||'Объект '+(i+1))}"`:''} opacity="${f.secret?0.55:1}" style="cursor:${interactive?'pointer':'default'}"><title>${esc(f.label||'Объект '+(i+1))}</title>${picture}${doors}<g fill="transparent" stroke="${f.id===selected?'#ecbd4b':'none'}" stroke-width="2" pointer-events="all">${hit}</g>${pin}</g>`;

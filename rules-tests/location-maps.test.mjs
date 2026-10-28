@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
-import {locationSVG,playerPlan} from '../public/location-render.js';
+import {locationSVG,playerPlan,passageDoors} from '../public/location-render.js';
 const m={title:'<script>Название</script>',kind:'dungeon',width:760,height:560,cellSize:40,metersPerCell:5,settings:{seed:'secret-seed'},river:[],trees:[],features:[{id:'a',style:'room',shape:'rect',x:50,y:50,w:100,h:80,label:'Вход',note:'Описание',gmNote:'GM-note',secret:false},{id:'b',style:'room',shape:'rect',x:350,y:50,w:100,h:80,label:'SECRET-ROOM',note:'',gmNote:'secret',secret:true}],paths:[{style:'passage',refs:['a','b'],points:[[100,90],[400,90]]}]};
 const safe=playerPlan(m);assert.equal(safe.features.length,1);assert.equal(safe.paths.length,0);assert.equal(safe.settings,undefined);assert.equal(safe.features[0].gmNote,undefined);
 const svg=locationSVG(m,{playerView:true,interactive:false});for(const secret of ['SECRET-ROOM','GM-note','secret-seed','data-location-feature','<script>'])assert.ok(!svg.includes(secret),secret);
 assert.ok(svg.includes('&lt;script&gt;'));assert.ok(locationSVG(m).includes('SECRET-ROOM'));assert.equal(m.features.length,2);
+const bent={...m,paths:[{style:'passage',refs:['a','b'],points:[[100,90],[400,90],[400,95]]}]};
+assert.deepEqual(passageDoors(bent,m.features[0]),[{x:150,y:90,dx:1,dy:0}]);
+assert.deepEqual(passageDoors(bent,m.features[1]),[{x:350,y:90,dx:-1,dy:0}]);
+assert.deepEqual(passageDoors(playerPlan(bent),m.features[0]),[]);
 console.log('Location maps: public/export redaction, hidden passages, escaped SVG and immutable preview passed.');
