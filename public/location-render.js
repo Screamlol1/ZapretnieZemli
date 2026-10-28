@@ -1,3 +1,4 @@
+import {locationPaths} from './location-paths.js';
 import {artDefinition,artSprite,featureArt,atlasURL} from './location-art.js';
 export const locationKinds={settlement:'Поселение',camp:'Лагерь',fortress:'Крепость',ruins:'Руины',dungeon:'Подземелье',cave:'Пещера'};
 export const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -17,7 +18,7 @@ export function passageDoors(map,f){
    const a=pts[i-1],b=pts[i];if(!inside(a)||inside(b))continue;
    const dx=b[0]-a[0],dy=b[1]-a[1];
    const tx=dx>0?(f.x+f.w-a[0])/dx:dx<0?(f.x-a[0])/dx:Infinity,ty=dy>0?(f.y+f.h-a[1])/dy:dy<0?(f.y-a[1])/dy:Infinity,t=Math.min(tx,ty);
-   const [x,y]=rotated([a[0]+dx*t,a[1]+dy*t],center,angle),[vx,vy]=rotated([Math.sign(dx),Math.sign(dy)],[0,0],angle);result.push({x,y,dx:vx,dy:vy});break;
+   const [x,y]=rotated([a[0]+dx*t,a[1]+dy*t],center,angle),[vx,vy]=rotated([dx/Math.hypot(dx,dy),dy/Math.hypot(dx,dy)],[0,0],angle);result.push({x,y,dx:vx,dy:vy});break;
   }
  }
  return result;
@@ -25,13 +26,7 @@ export function passageDoors(map,f){
 export function locationSVG(map,{grid=false,labels=true,selected='',playerView=false,interactive=true,atlas=atlasURL}={}){
  const m=playerView?playerPlan(map):map,underground=['dungeon','cave'].includes(m.kind),bg=underground?'#666858':'#d8cba8',floor='#d5c9a6';
  const unit=m.cellSize/m.metersPerCell;
- const paths=m.paths.map((p,index)=>{
-  const wrap=body=>`<g ${interactive?`data-location-path="${index}"`:''} opacity="${p.secret?.5:1}">${body}${interactive?`<polyline points="${points(p.points)}" fill="none" stroke="transparent" stroke-width="${Math.max(14,width+4)}" pointer-events="stroke"/>`:''}</g>`;
-  const data=`points="${points(p.points)}" fill="none" stroke-linecap="round" stroke-linejoin="round"`,width=p.style==='wall'?3*unit:p.style==='palisade'?.7*unit:p.style==='passage'?3*unit:(m.kind==='camp'?2:6)*unit;
-  if(p.style==='wall')return wrap(`<polyline ${data} stroke="#4c4a3c" stroke-width="${width+2}"/><polyline ${data} stroke="url(#location-stone)" stroke-width="${width}"/><polyline ${data} stroke="#8d8a70" stroke-width="${width+3}" stroke-dasharray="${unit} ${unit*2}"/>`);
-  if(p.style==='palisade')return wrap(`<polyline ${data} stroke="#4e3724" stroke-width="${width+2}"/><polyline ${data} stroke="#9b7950" stroke-width="${width}" stroke-dasharray="${.3*unit} ${.15*unit}"/>`);
-  return wrap(`<polyline ${data} stroke="${p.style==='passage'?'#55584b':'#98835d'}" stroke-width="${width+2}"/><polyline ${data} stroke="url(#${p.style==='passage'?'location-stone':'location-earth'})" stroke-width="${width}"/>`);
- }).join('');
+ const paths=locationPaths(m,interactive);
  const features=m.features.map((f,i)=>{
   const {x,y,w,h}=f,cx=x+w/2,cy=y+h/2;
   const hit=f.shape==='polygon'?`<polygon points="${points(f.points)}"/>`:f.shape==='ellipse'?`<ellipse cx="${cx}" cy="${cy}" rx="${w/2}" ry="${h/2}"/>`:`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="2"/>`;

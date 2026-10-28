@@ -93,3 +93,5 @@
  [data-location-generate] .location-fields{grid-template-columns:repeat(2,minmax(0,1fr))}
  [data-location-generate] .location-fields label:first-child{grid-column:1 / -1}
 }
+
+[data-location-path].location-rotation-selected>.location-path-outline,[data-location-path].location-line-drag>.location-path-outline{stroke:#e9b74e;stroke-opacity:.85;stroke-width:3;stroke-dasharray:7 4;pointer-events:none}

@@ -18,3 +18,11 @@ assert.ok(locationSVG(manual).includes('data-location-token="t"'));assert.equal(
 const turned={...m,features:[{...m.features[0],rotation:90}],paths:[],tokens:[{id:'t',x:100,y:100,name:'Hero',rotation:45}],undoCount:3};
 const turnedSVG=locationSVG(turned);assert.ok(turnedSVG.includes('rotate(90 100 90)'));assert.ok(turnedSVG.includes('rotate(45 100 100)'));assert.equal(playerPlan(turned).undoCount,undefined);
 const turnedDoors=passageDoors({...turned,paths:[{style:'passage',refs:['a'],points:[[0,90],[100,90]]}]},turned.features[0]);assert.ok(Math.abs(turnedDoors[0].x-60)<1e-8);assert.ok(Math.abs(turnedDoors[0].y-90)<1e-8);
+
+const {locationPaths,nearestLinePoint}=await import('../public/location-paths.js');
+const junction={...m,features:[],paths:[{style:'road',refs:[],points:[[10,100],[200,100]]},{style:'road',refs:[],points:[[100,10],[100,200]]},{style:'wall',refs:[],points:[[50,50],[200,50]]}]};
+const shared=locationPaths(junction,false);assert.equal((shared.match(/stroke="url\(#location-earth\)"/g)||[]).length,1);assert.ok(shared.indexOf('location-earth')<shared.indexOf('location-stone'));
+assert.equal(locationPaths({...junction,paths:[...junction.paths].reverse()},false).replace(/d="[^"]*"/g,''),shared.replace(/d="[^"]*"/g,''));
+assert.deepEqual(nearestLinePoint(junction.paths,[97,102]),[97,100]);assert.deepEqual(nearestLinePoint(junction.paths,[198,103]),[200,100]);assert.equal(nearestLinePoint(junction.paths,[700,700]),null);
+const doorRoom={...m.features[0],rotation:45},diagonalMap={...m,features:[doorRoom],paths:[{style:'passage',refs:['a'],points:[[500,170],[100,90]]}]};
+const door=passageDoors(diagonalMap,doorRoom)[0];assert.ok(Math.abs(door.dx-400/Math.hypot(400,80))<1e-8);assert.ok(Math.abs(door.dy-80/Math.hypot(400,80))<1e-8);

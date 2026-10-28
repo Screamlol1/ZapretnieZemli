@@ -235,4 +235,44 @@ class LocationMapTests(unittest.TestCase):
         m=self.game.view(self.gs)['locationMaps'][0];self.assertFalse(m.get('undoCount'))
         with self.assertRaises(ValueError):self.undo(m)
 
+    def test_connected_lines_follow_rotation_move_and_undo(self):
+        from location_editor import edit,rotate_point
+        from location_geometry import parameter
+        import copy
+        for style in ('road','wall','palisade'):
+            m=dict(width=800,height=700,cellSize=40,metersPerCell=10,features=[],paths=[
+                dict(style=style,refs=[],points=[[100,100],[200,100]]),
+                dict(style=style,refs=[],points=[[200,100],[400,100]]),
+                dict(style=style,refs=[],points=[[300,100],[300,220]])])
+            edit({},m,dict(op='rotate',kind='path',target=0,angle=45),[])
+            self.assertEqual(m['paths'][0]['points'][-1],m['paths'][1]['points'][0])
+            self.assertIn([300,100],m['paths'][1]['points'])
+            edit({},m,dict(op='move',kind='path',target=0,point=[200,250]),[])
+            self.assertEqual(m['paths'][0]['points'][-1],m['paths'][1]['points'][0])
+            self.assertIn([300,100],m['paths'][1]['points']);self.assertEqual(m['paths'][2]['points'][0],[300,100])
+        m=self.create()
+        for pts in ([[100,500],[200,500]],[[200,500],[300,500]]):m=self.manual(m,op='path',style='road',points=pts)
+        before=copy.deepcopy(m['paths']);m=self.manual(m,op='rotate',kind='path',target=len(m['paths'])-2,angle=45)
+        self.assertEqual(m['paths'][-2]['points'][-1],m['paths'][-1]['points'][0])
+        m=self.undo(m);self.assertEqual(m['paths'],before)
+
+    def test_line_transform_preserves_crossroads_gates_and_private_geometry(self):
+        from location_editor import edit
+        import copy
+        m=dict(width=800,height=700,cellSize=40,metersPerCell=10,features=[],paths=[
+            dict(style='road',refs=[],points=[[100,100],[300,100]]),
+            dict(style='road',refs=[],points=[[200,50],[200,200]]),
+            dict(style='road',refs=[],points=[[300,100],[400,200]],secret=True),
+            dict(style='wall',refs=[],points=[[200,50],[200,200]])])
+        private=copy.deepcopy(m['paths'][2]);wall=copy.deepcopy(m['paths'][3])
+        edit({},m,dict(op='move',kind='path',target=0,point=[200,300]),[])
+        self.assertIn([200,300],m['paths'][0]['points']);self.assertIn([200,300],m['paths'][1]['points'])
+        self.assertEqual(m['paths'][2],private);self.assertEqual(m['paths'][3],wall)
+        m['paths']=[dict(style='wall',refs=[],points=[[100,100],[200,100]]),dict(style='wall',refs=[],points=[[230,100],[300,100]])]
+        gate=copy.deepcopy(m['paths'][1]);edit({},m,dict(op='rotate',kind='path',target=0,angle=90),[])
+        self.assertEqual(m['paths'][1],gate)
+        unchanged=copy.deepcopy(m)
+        with self.assertRaises(ValueError):edit({},m,dict(op='move',kind='path',target=0,point=[0,0]),[])
+        self.assertEqual(m,unchanged)
+
 if __name__=='__main__':unittest.main()

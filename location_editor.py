@@ -3,6 +3,7 @@ import math
 import secrets
 import copy
 import json
+from location_geometry import transform_line
 
 
 def snapshot(m):
@@ -91,7 +92,7 @@ def edit(room, m, data, art_ids):
             if kind=='path':
                 pts=target['points'];center=target.get('rotationCenter') or [(min(p[i] for p in pts)+max(p[i] for p in pts))/2 for i in (0,1)]
                 if target.get('refs'):raise ValueError('Связанный проход следует за комнатой. Для отдельного поворота нарисуйте новый проход.')
-                target['points']=[point(m,rotate_point(p,center,angle-target.get('rotation',0))) for p in pts]
+                transform_line(m,target,lambda p:rotate_point(p,center,angle-target.get('rotation',0)),point)
                 target['rotationCenter']=center
             elif kind=='feature':
                 feature_bounds(m,{**target,'rotation':angle})
@@ -101,7 +102,12 @@ def edit(room, m, data, art_ids):
             if kind == 'feature':
                 m['paths'] = [p for p in m['paths'] if target['id'] not in p.get('refs', [])]
         elif kind == 'path':
-            raise ValueError('Линию можно удалить и проложить заново.')
+            if target.get('refs'):raise ValueError('Связанный проход перемещается вместе с комнатой.')
+            x,y=point(m,data.get('point'));pts=target['points']
+            center=[(min(p[i] for p in pts)+max(p[i] for p in pts))/2 for i in (0,1)]
+            dx,dy=x-center[0],y-center[1]
+            transform_line(m,target,lambda p:[p[0]+dx,p[1]+dy],point)
+            if 'rotationCenter' in target:target['rotationCenter']=[target['rotationCenter'][0]+dx,target['rotationCenter'][1]+dy]
         else:
             x, y = point(m, data.get('point'))
             if kind == 'feature':
