@@ -1,0 +1,80 @@
+import {locationKinds,locationSVG,playerPlan,esc} from './location-render.js';
+import {label as hexLabel} from './world-hex.js';
+export function locationMapsUI(getState,action,show){
+ const root=document.createElement('section');root.id='locations-panel';root.hidden=true;document.getElementById('table').append(root);
+ root.innerHTML=`<div class="toolbar"><div><small>АТЛАС ПРИКЛЮЧЕНИЙ</small><h2>Карты локаций</h2></div><button data-location-new>＋ Новая карта</button></div><p>Планы поселений, лагерей, крепостей, руин и подземелий. Создавайте место для исследования, переговоров, засады или проникновения.</p><label>Сохранённые карты<select data-location-library></select></label><details data-location-generator><summary>Генератор · настройки плана</summary><form data-location-generate><div class="location-fields"><label>Название<input name="title" maxlength="80" required></label><label>Тип локации<select name="kind">${Object.entries(locationKinds).map(([id,title])=>`<option value="${id}">${title}</option>`).join('')}</select></label><label>Размер<select name="size"><option value="small">Небольшой</option><option value="medium" selected>Средний</option><option value="large">Большой</option></select></label><label>Плотность / связность<select name="density"><option value="sparse">Редкая</option><option value="normal" selected>Обычная</option><option value="dense">Плотная</option></select></label><label>Зерно генерации<input name="seed" maxlength="80" placeholder="Пусто — случайный вариант"></label></div><div class="toolbar"><label><input name="water" type="checkbox"> Река</label><label><input name="walls" type="checkbox"> Стены / частокол</label></div><p data-location-source class="muted"></p><p class="muted">Одинаковые зерно и настройки создают одинаковый план. Это авторская схема для игры; население, сокровища и противники определяются отдельно. Пересоздание сбрасывает подписи и снова скрывает карту от игроков.</p><button class="primary-action" data-location-submit>Создать карту</button></form></details><p data-location-error class="editor-error" role="alert"></p><div data-location-empty class="empty-guide">Выберите карту из списка или создайте новую. Игрокам доступны карты, которые открыл Мастер.</div><div data-location-content hidden><div class="toolbar location-top"><h3 data-location-title></h3><span data-location-status></span><button data-location-reveal></button><button data-location-delete>Удалить карту</button></div><div class="toolbar location-controls"><button data-location-zoom="out" aria-label="Уменьшить план">−</button><button data-location-zoom="in" aria-label="Приблизить план">+</button><button data-location-fit>Весь план</button><label><input type="checkbox" data-location-grid> Сетка</label><label><input type="checkbox" data-location-labels checked> Номера мест</label><label data-player-view-label><input type="checkbox" data-location-player-view> Вид игрока</label><button data-location-svg>Скачать SVG</button><button data-location-png>Скачать PNG</button></div><p class="muted">Колесо — масштаб · зажмите ЛКМ и перетяните план · нажмите здание или комнату для описания. Экспорт всегда исключает секретные объекты.</p><div class="location-layout"><div class="location-viewport" tabindex="0" aria-label="План локации"><div data-location-canvas></div></div><aside class="location-details"><div data-location-feature-panel></div><details open><summary>Места на плане</summary><div data-location-legend></div></details></aside></div></div>`;
+ const $=s=>root.querySelector(s),form=$('[data-location-generate]'),viewport=$('.location-viewport'),canvas=$('[data-location-canvas]');
+ let selected='',source={kind:'library'},campaign='',last='',featureId='',featureVersion=0,dirty=false,zoom=1,busy=false,drag=null,suppress=false,shown='';
+ const maps=()=>getState()?.locationMaps||[],current=()=>maps().find(m=>m.id===selected),gm=()=>getState()?.me.role==='gm';
+ const error=message=>$('[data-location-error]').textContent=message;
+ const options=()=>({grid:$('[data-location-grid]').checked,labels:$('[data-location-labels]').checked,selected:featureId,playerView:$('[data-location-player-view]').checked&&gm()});
+ const seenMap=()=>{const m=current();return m&&$('[data-location-player-view]').checked?playerPlan(m):m;};
+ function controls(){const kind=form.elements.kind.value,above=!['dungeon','cave'].includes(kind);form.elements.water.disabled=!above;form.elements.walls.disabled=!above||kind==='ruins';if(!above)form.elements.water.checked=form.elements.walls.checked=false;if(kind==='fortress'){form.elements.walls.checked=true;form.elements.walls.disabled=true;}}
+ function sourceText(m){const src=m?.source||source;return src.kind==='hex'?'Привязана к гексу '+hexLabel(src):src.kind==='workshop'?'Карта заготовки: сначала разместите место на общей карте.':'Отдельная карта кампании · например, сцена встречи или план логова.';}
+ function generator(m=null,spec={}){
+  const cfg=m?.settings||spec,values={title:m?.title||spec.title||'',kind:m?.kind||spec.kind||'settlement',size:cfg.size||'medium',density:cfg.density||'normal',seed:cfg.seed||''};
+  for(const [k,v] of Object.entries(values))form.elements[k].value=v;
+  for(const k of ['water','walls'])form.elements[k].checked=!!cfg[k];controls();
+  $('[data-location-submit]').textContent=m?'Пересоздать карту…':'Создать карту';$('[data-location-source]').textContent=sourceText(m);
+ }
+ function size(){const svg=canvas.querySelector('svg'),m=current();if(!svg||!m||!viewport.clientWidth)return;viewport.style.height=Math.min(innerHeight*.68,Math.max(260,(viewport.clientWidth-2)*m.height/m.width))+'px';const fitted=Math.min(viewport.clientWidth-2,(viewport.clientHeight-2)*m.width/m.height);svg.style.width=fitted*zoom+'px';svg.style.height='auto';svg.style.marginInline='auto';canvas.style.width=Math.max(viewport.clientWidth-2,fitted*zoom)+'px';}
+ function draw(){const m=seenMap();if(!m)return;const x=viewport.scrollLeft,y=viewport.scrollTop;canvas.innerHTML=locationSVG(m,options());size();viewport.scrollLeft=x;viewport.scrollTop=y;
+  $('[data-location-legend]').innerHTML=m.features.map((f,i)=>f.label?`<button type="button" data-location-pick="${f.id}">${i+1}. ${esc(f.label)}${f.secret?' · скрыто':''}</button>`:'').join('')||'<p>Нажмите объект на плане, чтобы дать ему название.</p>';
+ }
+ function featurePanel(){
+  const m=seenMap(),f=m?.features.find(f=>f.id===featureId),panel=$('[data-location-feature-panel]');if(!f){panel.innerHTML='<h3>Осмотрите место</h3><p>Выберите здание, палатку, башню или комнату. Здесь появятся описание и заметки.</p>';dirty=false;return;}
+  featureVersion=current().version;dirty=false;
+  panel.innerHTML=gm()&&!$('[data-location-player-view]').checked?`<form data-location-feature-form><h3>Место на плане</h3><label>Название<input name="label" maxlength="80" value="${esc(f.label)}"></label><label>Описание для игроков<textarea name="note" maxlength="1200" rows="4">${esc(f.note)}</textarea></label><label>Заметка Мастера<textarea name="gmNote" maxlength="1200" rows="4">${esc(f.gmNote)}</textarea></label><label><input name="secret" type="checkbox" ${f.secret?'checked':''}> Скрыть объект и ведущие к нему проходы</label><p class="muted">Например: тайная комната, клад, ловушка, жители или условия переговоров.</p><button>Сохранить место</button><button type="button" data-location-refresh>Загрузить актуальное</button><p data-location-conflict role="status"></p></form>`:`<h3>${esc(f.label||'Место на плане')}</h3><p class="location-note">${esc(f.note||'Мастер ещё не добавил описание.')}</p>`;
+ }
+ function selectFeature(id){if(dirty&&!confirm('Отменить несохранённые изменения описания?'))return;featureId=id;draw();featurePanel();}
+ function open(spec={}){
+  if(dirty&&!confirm('Отменить несохранённые изменения описания?')){$('[data-location-library]').value=selected;return;}
+  let m=spec.id&&maps().find(m=>m.id===spec.id);
+  if(!m&&spec.source){let src=spec.source;if(src.kind==='workshop'){const e=getState().workshop?.find(e=>e.id===src.id);if(e?.published?.kind==='place')src={kind:'hex',x:e.published.x,y:e.published.y};}m=maps().find(m=>m.source.kind===src.kind&&(src.kind==='hex'?m.source.x===src.x&&m.source.y===src.y:src.kind==='workshop'?m.source.id===src.id:false));source=src;}
+  selected=m?.id||'';source=m?.source||spec.source||{kind:'library'};shown='';featureId='';dirty=false;zoom=1;last='';error('');show();generator(m,spec);$('[data-location-generator]').open=!m;render();
+ }
+ async function run(data){if(busy)return false;busy=true;root.querySelectorAll('button').forEach(b=>b.disabled=true);try{const ok=await action(data);if(!ok)error(document.getElementById('error').textContent||'Не удалось сохранить карту.');else error('');return ok;}finally{busy=false;root.querySelectorAll('button').forEach(b=>b.disabled=false);}}
+ form.onsubmit=async e=>{
+  e.preventDefault();const m=current(),v=new FormData(form);if(m&&!confirm('Пересоздать план? Подписи и секреты объектов будут сброшены, карта снова станет скрытой.'))return;
+  const ids=new Set(maps().map(m=>m.id)),cfg=Object.fromEntries(['kind','size','density','seed'].map(k=>[k,v.get(k)]));cfg.water=form.elements.water.checked;cfg.walls=form.elements.walls.checked;
+  if(await run({action:'locationMapGenerate',id:m?.id,version:m?.version,replace:!!m,source,title:v.get('title'),settings:cfg})){const created=m?maps().find(x=>x.id===m.id):maps().find(x=>!ids.has(x.id));if(created){dirty=false;open({id:created.id});}}
+ };
+ form.onchange=controls;
+ root.addEventListener('input',e=>{if(e.target.closest('[data-location-feature-form]'))dirty=true;});
+ root.addEventListener('submit',async e=>{if(!e.target.hasAttribute('data-location-feature-form'))return;e.preventDefault();const v=new FormData(e.target),m=current();if(await run({action:'locationMapFeature',id:m.id,version:featureVersion,feature:featureId,...Object.fromEntries(v),secret:v.has('secret')})){dirty=false;featurePanel();}});
+ function zoomTo(value,point){const svg=canvas.querySelector('svg');if(!svg)return;const rect=svg.getBoundingClientRect(),box=viewport.getBoundingClientRect(),px=point?.x??box.left+viewport.clientWidth/2,py=point?.y??box.top+viewport.clientHeight/2,ax=(px-rect.left)/rect.width,ay=(py-rect.top)/rect.height;zoom=Math.max(1,Math.min(6,value));size();const next=svg.getBoundingClientRect();viewport.scrollLeft+=next.left+ax*next.width-px;viewport.scrollTop+=next.top+ay*next.height-py;}
+ viewport.addEventListener('wheel',e=>{if(e.ctrlKey||e.metaKey)return;e.preventDefault();zoomTo(zoom*Math.exp(-Math.max(-100,Math.min(100,e.deltaY))*.003),{x:e.clientX,y:e.clientY});},{passive:false});
+ viewport.addEventListener('pointerdown',e=>{if(e.button!==0||zoom<=1)return;drag={id:e.pointerId,x:e.clientX,y:e.clientY,left:viewport.scrollLeft,top:viewport.scrollTop,moved:false};});
+ viewport.addEventListener('pointermove',e=>{if(!drag||e.pointerId!==drag.id)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(!drag.moved&&Math.hypot(dx,dy)>5){drag.moved=true;viewport.setPointerCapture(e.pointerId);}if(drag.moved){e.preventDefault();viewport.scrollLeft=drag.left-dx;viewport.scrollTop=drag.top-dy;}});
+ function end(){if(drag){suppress=drag.moved;if(viewport.hasPointerCapture(drag.id))viewport.releasePointerCapture(drag.id);drag=null;}}
+ viewport.addEventListener('pointerup',end);viewport.addEventListener('pointercancel',end);window.addEventListener('blur',end);
+ viewport.addEventListener('click',e=>{if(suppress){suppress=false;e.preventDefault();e.stopImmediatePropagation();}},true);
+ viewport.addEventListener('keydown',e=>{const f=e.target.closest('[data-location-feature]');if(f&&['Enter',' '].includes(e.key)){e.preventDefault();selectFeature(f.dataset.locationFeature);}});
+ async function download(png){
+  const m=current();if(!m)return;const svg=locationSVG(m,{grid:$('[data-location-grid]').checked,labels:true,playerView:true,interactive:false}),blob=new Blob([svg],{type:'image/svg+xml;charset=utf-8'});let url=URL.createObjectURL(blob);
+  try{if(png){const img=new Image();await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(Error('Не удалось подготовить PNG.'));img.src=url;});const c=document.createElement('canvas');c.width=img.width;c.height=img.height;c.getContext('2d').drawImage(img,0,0);const pngBlob=await new Promise(resolve=>c.toBlob(resolve,'image/png'));if(!pngBlob)throw Error('Не удалось сохранить PNG.');URL.revokeObjectURL(url);url=URL.createObjectURL(pngBlob);}const a=document.createElement('a');a.href=url;a.download=(m.title.replace(/[<>:"/\\|?*]/g,'-')||'location')+(png?'.png':'.svg');a.click();}catch(e){error(e.message);}finally{setTimeout(()=>URL.revokeObjectURL(url),1500);}
+ }
+ root.addEventListener('change',e=>{if(e.target.matches('[data-location-library]'))open({id:e.target.value});if(e.target.matches('[data-location-grid],[data-location-labels]'))draw();if(e.target.matches('[data-location-player-view]')){if(dirty&&!confirm('Отменить несохранённые изменения описания?')){e.target.checked=!e.target.checked;return;}featureId='';dirty=false;draw();featurePanel();}});
+ root.addEventListener('click',async e=>{const f=e.target.closest('[data-location-feature]');if(f){selectFeature(f.dataset.locationFeature);return;}const b=e.target.closest('button');if(!b||busy)return;const d=b.dataset,m=current();
+  if(d.locationPick)selectFeature(d.locationPick);
+  if('locationNew'in d)open();
+  if('locationRefresh'in d){dirty=false;featurePanel();}
+  if(d.locationZoom)zoomTo(zoom*(d.locationZoom==='in'?1.3:1/1.3));
+  if('locationFit'in d){zoom=1;size();viewport.scrollTo(0,0);}
+  if('locationReveal'in d&&m)await run({action:'locationMapReveal',id:m.id,version:m.version,revealed:!m.revealed});
+  if('locationDelete'in d&&m&&confirm('Удалить эту карту из кампании? Само место останется на общей карте.')){if(await run({action:'locationMapDelete',id:m.id,version:m.version,confirmed:true}))open();}
+  if('locationSvg'in d)await download(false);if('locationPng'in d)await download(true);
+ });
+ function render(){
+  const s=getState();if(!s)return;if(campaign!==s.id){campaign=s.id;selected='';source={kind:'library'};shown='';last='';featureId='';dirty=false;generator();}
+  const isGM=gm();$('[data-location-new]').hidden=$('[data-location-generator]').hidden=!isGM;$('[data-location-reveal]').hidden=$('[data-location-delete]').hidden=$('[data-player-view-label]').hidden=!isGM;
+  const optionsHTML='<option value="">Выберите карту</option>'+maps().map(m=>`<option value="${m.id}">${esc(m.title)} · ${locationKinds[m.kind]}${isGM&&!m.revealed?' · скрыта':''}</option>`).join('');
+  const lib=$('[data-location-library]');if(lib.innerHTML!==optionsHTML)lib.innerHTML=optionsHTML;lib.value=selected;
+  const m=current();$('[data-location-empty]').hidden=!!m;$('[data-location-content]').hidden=!m;
+  if(!m){canvas.innerHTML='';$('[data-location-feature-panel]').innerHTML='';$('[data-location-legend]').innerHTML='';last='';return;}
+  if(shown!==m.id){shown=m.id;generator(m);lib.value=m.id;}
+  $('[data-location-title]').textContent=m.title;$('[data-location-status]').textContent=isGM?(m.revealed?'Карта открыта игрокам':'Карта скрыта от игроков'):'Карта открыта Мастером';$('[data-location-reveal]').textContent=m.revealed?'Скрыть карту':'Показать игрокам';$('[data-location-source]').textContent=sourceText(m);
+  const signature=JSON.stringify(m);if(signature!==last){last=signature;draw();if(!dirty)featurePanel();else if(featureVersion!==m.version){const warning=$('[data-location-conflict]');if(warning)warning.textContent='Карта обновлена. Ваш текст сохранён в форме; загрузите актуальное описание перед изменением.';}}
+ }
+ new ResizeObserver(size).observe(viewport);generator();return {render,open};
+}

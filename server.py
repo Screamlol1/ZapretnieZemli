@@ -1,5 +1,6 @@
 """Campaign server. Python 3.11+, no third-party dependencies."""
 from journal import stamp_entries
+from location_maps import apply as location_map_action, redact as redact_location_maps
 from dice_pools import skill_counts, result_text
 from dice_events import publish as publish_dice, group as dice_group, visibility as dice_visibility, redact as redact_dice
 import argparse
@@ -181,6 +182,7 @@ class Game:
                               if s['role']=='gm' or not c.get('hidden')]
         if s['role']!='gm':
             redact_dice(room)
+            redact_location_maps(room)
             room.pop('workshop',None)
             room['journey']['pendingCount']=len(room['journey']['pending'])
             room['journey']['pending']=[]
@@ -220,6 +222,8 @@ class Game:
             if action!='inventoryOpen':room['journey']['gmReady']=False
         elif action in ('characterRoll','characterPush'):
             character_check(room,s,data)
+        elif isinstance(action,str) and action.startswith('locationMap'):
+            location_map_action(room,s,data)
         elif isinstance(action,str) and action.startswith('workshop'):
             workshop_action(room,s,data)
         elif isinstance(action,str) and (action.startswith('travel') or action.startswith('hold')):

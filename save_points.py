@@ -62,7 +62,7 @@ def apply(game,s,data):
     for key in ('id','gmKey','playerKey','identities'):restored[key]=room[key]
     if room.get('gmAccount'):restored['gmAccount']=room['gmAccount']
     for key in ('revision','combatRevision'):restored[key]=max(room.get(key,0),restored.get(key,0))+1
-    for kind,field in (('items','version'),('characters','equipmentVersion'),('workshop','version')):
+    for kind,field in (('items','version'),('characters','equipmentVersion'),('workshop','version'),('locationMaps','version')):
         current={x['id']:x.get(field,0) for x in room.get(kind,[])}
         for x in restored.get(kind,[]):x[field]=max(x.get(field,0),current.get(x['id'],0))+1
     current_chars={c['id']:c for c in room['characters']}

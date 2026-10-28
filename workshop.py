@@ -1,6 +1,7 @@
 """Private GM preparation library; publishing is an explicit versioned action."""
 import re
 import secrets
+from location_maps import publish_workshop_map
 from campaign_rules import coordinate, pending, participants
 
 FIELDS={
@@ -56,10 +57,15 @@ def apply(room,s,data):
         values={k:text(fields.get(k,''),60 if k=='title' else 1200) for k in keys}
         if not values['title']:raise ValueError('Укажите название.')
         saved=dict(id=old['id'] if old else secrets.token_hex(12),version=old['version']+1 if old else 1,kind=kind,fields=values,locked=locked,tables={k:table(t) for k,t in tables.items()},trace={k:text(v,6000) for k,v in trace.items()})
+        if old and old.get('locationMapId'):
+            if kind not in ('settlement','ruin'):raise ValueError('У заготовки есть карта. Для другого вида создайте новую заготовку.')
+            saved['locationMapId']=old['locationMapId']
         room['workshop']=[e for e in entries if e['id']!=saved['id']]+[saved]
         return
     e=entry(room,data)
     if data['action']=='workshopDelete':
+        for m in room.get('locationMaps',[]):
+            if m['source']==dict(kind='workshop',id=e['id']):m['source']=dict(kind='library');m['version']+=1
         room['workshop']=[x for x in entries if x['id']!=e['id']];return
     if data['action']!='workshopPublish':raise ValueError('Неизвестное действие мастерской.')
     if e.get('published'):raise ValueError('Эта заготовка уже применена.')
@@ -76,6 +82,7 @@ def apply(room,s,data):
         p=coordinate(data,room);key=f"{p['x']},{p['y']}";cell=room['maps']['world'].setdefault(key,{})
         if cell.get('label') or cell.get('siteType') not in (None,'none'):raise ValueError('В гексе уже есть место. Выберите свободный гекс.')
         cell.update(label=fields['title'],note=fields.get('description',''),gmNote=details,siteType='settlement' if e['kind']=='settlement' else 'ruin',siteHidden=True)
+        publish_workshop_map(room,e,cell,p)
         e['published']=dict(kind='place',**p)
     else:raise ValueError('Чудовище добавляется через редактор параметров.')
     e['version']+=1

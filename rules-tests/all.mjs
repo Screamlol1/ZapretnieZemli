@@ -15,3 +15,4 @@ import './journal.test.mjs';
 
 import './progression.test.mjs';
 import './dice.test.mjs';
+import './location-maps.test.mjs';

@@ -1,3 +1,4 @@
+import {locationMapsUI} from './location-maps.js';
 import {diceUI} from './dice-ui.js';
 import {openProgression} from './progression-ui.js';
 import {personalTurnUI} from './personal-turn.js';
@@ -16,7 +17,7 @@ import {worldMap} from './world-map.js';
 const $=id=>document.getElementById(id),esc=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let credentials=null;try{credentials=JSON.parse(sessionStorage.getItem('campaign')||'null');}catch{sessionStorage.removeItem('campaign');}
 let state=null,map='world',timer,busy=false,view=sessionStorage.getItem('campaign-view')||'map',lastCrew='',lastBoard='',stateEtag='',failures=0,pendingAction=false;
-if(!['map','combat','holds','crew','journal','inventory','workshop'].includes(view))view='map';
+if(!['map','combat','holds','crew','journal','inventory','workshop','locations'].includes(view))view='map';
 const editors=new Map();let creatorDialog=null,creatorFrame=null;
 function openCreator(id){
  if(!creatorDialog){creatorDialog=document.createElement('dialog');creatorDialog.className='character-creator';creatorDialog.setAttribute('aria-label','Конструктор игрового персонажа');creatorDialog.innerHTML='<div class="toolbar"><h2>Игровой персонаж</h2><button data-close-creator>Вернуться к персонажам</button></div><iframe title="Лист игрового персонажа"></iframe>';document.body.append(creatorDialog);creatorFrame=creatorDialog.querySelector('iframe');creatorDialog.querySelector('[data-close-creator]').onclick=()=>creatorDialog.close();}
@@ -26,15 +27,17 @@ function openCreator(id){
 }
 document.querySelectorAll('[data-create-character]').forEach(b=>b.onclick=()=>openCreator());const renderCombat=combatUI(()=>state,action);
 const inventory=inventoryUI(()=>state,action);
-const workshop=workshopUI(()=>state,action);
+const locations=locationMapsUI(()=>state,action,()=>setView('locations'));
+const openLocation=spec=>locations.open(spec);
+const workshop=workshopUI(()=>state,action,openLocation);
 const openSaves=saveUI(()=>state,api,next=>{if(acceptState(state,next)){state=next;stateEtag='';render();}},()=>pendingAction);
 $('campaign-saves').onclick=()=>openSaves();
 const journey=journeyUI(()=>state,action);
 const personal=personalTurnUI(()=>state,journey.send,()=>setView('travel'));
 const journal=journalUI(()=>state);
 const dice=diceUI(()=>state);
-const world=worldMap(()=>state,action,()=>credentials,error,()=>journey.render());
-function setView(next){if(next==='workshop'&&state?.me.role!=='gm')next='map';const openTravel=next==='travel';next=openTravel?'map':next;const changed=next!==view;view=next;sessionStorage.setItem('campaign-view',view);for(const [id,v] of [['map-panel','map'],['crew-panel','crew'],['journal-panel','journal'],['online-combat','combat'],['inventory-panel','inventory'],['workshop-panel','workshop']])$(id).hidden=view!==v;const root=$('journey-panel'),parent=view==='holds'?$('table'):$('map-panel');if(root.parentElement!==parent)parent.append(root);root.hidden=!['map','holds'].includes(view);document.querySelectorAll('[data-journey-part]').forEach(el=>el.hidden=el.dataset.journeyPart!==(view==='map'?'travel':view));document.querySelectorAll('[data-view]').forEach(b=>{b.classList.toggle('active',b.dataset.view===view);b.setAttribute('aria-pressed',String(b.dataset.view===view));});if(openTravel){const more=root.querySelector('.travel-details');if(more)more.open=true;root.scrollIntoView({behavior:'smooth',block:'start'});}else if(changed)window.scrollTo({top:0,behavior:'smooth'});}
+const world=worldMap(()=>state,action,()=>credentials,error,()=>journey.render(),openLocation);
+function setView(next){if(next==='workshop'&&state?.me.role!=='gm')next='map';const openTravel=next==='travel';next=openTravel?'map':next;const changed=next!==view;view=next;sessionStorage.setItem('campaign-view',view);for(const [id,v] of [['map-panel','map'],['crew-panel','crew'],['journal-panel','journal'],['online-combat','combat'],['inventory-panel','inventory'],['workshop-panel','workshop'],['locations-panel','locations']])$(id).hidden=view!==v;const root=$('journey-panel'),parent=view==='holds'?$('table'):$('map-panel');if(root.parentElement!==parent)parent.append(root);root.hidden=!['map','holds'].includes(view);document.querySelectorAll('[data-journey-part]').forEach(el=>el.hidden=el.dataset.journeyPart!==(view==='map'?'travel':view));document.querySelectorAll('[data-view]').forEach(b=>{b.classList.toggle('active',b.dataset.view===view);b.setAttribute('aria-pressed',String(b.dataset.view===view));});if(openTravel){const more=root.querySelector('.travel-details');if(more)more.open=true;root.scrollIntoView({behavior:'smooth',block:'start'});}else if(changed)window.scrollTo({top:0,behavior:'smooth'});}
 
 function modeTools(){const mode=$('mode').value,gm=state?.me.role==='gm';$('paint-tools').hidden=mode!=='paint'||!gm;$('new-token-tools').hidden=mode!=='token'||!gm;$('move-tools').hidden=mode!=='move';$('hidden-cell-tools').hidden=!gm||!['paint','token'].includes(mode);$('map-route-bar').hidden=mode!=='route'||map!=='world';document.querySelectorAll('[data-world-tools]').forEach(el=>el.hidden=map!=='world');$('map-inspector').hidden=map!=='world';}
 document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));
@@ -62,7 +65,7 @@ function render(){$('support-banner').hidden=!state?.me.support;if(!state)return
  $('board').innerHTML=Array.from({length:384},(_,i)=>{const x=i%24,y=Math.floor(i/24),key=`${x},${y}`,cell=state.maps.battle[key]||{terrain:'plain'},hidden=fog.has(key),ts=state.tokens.filter(t=>t.map===map&&t.x===x&&t.y===y);return `<button data-x="${x}" data-y="${y}" data-terrain="${hidden&&!gm?'wall':cell.terrain}" class="${hidden?'secret':''} ${ts.length?'token':''}" title="${esc(ts.map(t=>t.name).join(', ')||`${x+1}, ${y+1}`)}" aria-label="${esc(`${x+1}, ${y+1}; ${hidden&&!gm?'скрыто':cell.terrain}; ${ts.map(t=>t.name).join(', ')}`)}">${hidden&&!gm?'?':ts.length?esc(ts[0].name.slice(0,2)):symbols[cell.terrain]}</button>`;}).join('');
 }}
  journal.render();dice.render();
- inventory.render();workshop.render();renderCombat();journey.render();personal.render();modeTools();setView(view);
+ inventory.render();locations.render();workshop.render();renderCombat();journey.render();personal.render();modeTools();setView(view);
 }
 $('create').onclick=()=>login(true);$('join').onclick=()=>login(false);$('leave').onclick=async()=>{try{await api('leave',{});}catch{}sessionStorage.removeItem('campaign');location.href=credentials?.account?'/':'/index.html';};
 document.querySelectorAll('[data-map]').forEach(b=>b.onclick=()=>{world.remember();map=b.dataset.map;$('mode').value='inspect';document.querySelectorAll('[data-map]').forEach(x=>x.classList.toggle('active',x===b));render();});
