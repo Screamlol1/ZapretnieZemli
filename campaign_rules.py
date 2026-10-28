@@ -1,3 +1,4 @@
+from dice_events import publish as publish_dice, pools as dice_pools
 """Journey and stronghold state. PH chapters 7–8; complex consequences stay with GM."""
 import secrets
 from copy import deepcopy
@@ -347,6 +348,7 @@ def advance(room,data,defer_clock=False):
         if rank>=3 and talent in ('pathfinder','quartermaster'):
             artifact=dice(1,8)[0];r['artifact']=artifact;r['artifacts'].append(dict(sides=8,value=artifact))
         r['hits']=max(0,r['netHits']+sum(max(0,a['value']//2-2) if a['value']>=6 else 0 for a in r['artifacts']))
+        r['diceEvent']=publish_dice(room,c['name'],'Путешествие · '+skill,dice_pools(r),f"Успехов: {r['hits']}.",skill=='scout' or bool(c.get('hidden')))
         rolls.append(r);return r
     if hiking:
         overloaded=[c for c in party if c.get('inventoryInitialized') and inventory_load(room,c)['overloaded']]

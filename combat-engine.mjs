@@ -33,7 +33,7 @@ try{
   // Find legal, distinct starting cells within the inherited map.
   const used=new Set();for(const u of battle.units){let cell;for(let r=0;r<9&&!cell;r++)for(let q=u.team==='A'?0:7;q<(u.team==='A'?6:13);q++)if(!used.has(`${q},${r}`)&&battle.terrain[`${q},${r}`]!=='wall'){cell={q,r};break;}if(!cell)throw Error('Нет места для отряда.');Object.assign(u,cell);used.add(`${u.q},${u.r}`);}
  }else{
-  battle=validateBattle(payload.battle);const c=payload.command,action=c.action;
+  battle=validateBattle(payload.battle);battle.diceEvents=[];battle.commandLog=[];const c=payload.command,action=c.action;
   if(activeUnit(battle)?.pendingMove&&action!=='resolveLoad')throw Error('Сначала выберите последствие перегруза.');
   if(activeUnit(battle)?.monster&&['slash','stab','shoot','punch','shove','cast','ai'].includes(action))throw Error('Чудовище использует свою таблицу атак.');
   if(action==='start')startBattle(battle);

@@ -1,5 +1,6 @@
 """Campaign server. Python 3.11+, no third-party dependencies."""
 from journal import stamp_entries
+from dice_events import publish as publish_dice, group as dice_group, visibility as dice_visibility, redact as redact_dice
 import argparse
 import base64
 import binascii
@@ -178,6 +179,7 @@ class Game:
                               {**{k:v for k,v in c.items() if k in ('id','owner','name','kind','visual')},'kin':c.get('sheet',{}).get('kin')} for c in room['characters']
                               if s['role']=='gm' or not c.get('hidden')]
         if s['role']!='gm':
+            redact_dice(room)
             room.pop('workshop',None)
             room['journey']['pendingCount']=len(room['journey']['pending'])
             room['journey']['pending']=[]
@@ -402,7 +404,13 @@ class Game:
                 char=next((c for c in room['characters'] if c['id']==actor),None)
                 if not char or char['kind']!='pc':raise PermissionError('ПВ и чудовищами управляет Мастер.')
                 if name!='defense' and battle['phase']=='combat' and actor!=battle['order'][battle['turn']]:raise PermissionError('Сейчас ход другого бойца.')
+            private=dice_visibility(s,data)
             room['combat']=self.engine(dict(battle=battle,command=cmd))
+            updated=room['combat']
+            new_logs=updated.pop('commandLog',[])
+            updated['publicLog']=(battle.get('publicLog',battle['log'])+([] if private else new_logs))[-300:]
+            for roll in updated.pop('diceEvents',[]):
+                publish_dice(room,roll['name'],roll['label'],roll['groups'],roll['result'],private)
             sync_wear(room,room['combat'])
             before=next((u for u in battle['units'] if u['id']==actor),None)
             hit_ids=[u['id'] for u in room['combat']['units'] if any(u[k]<next(v for v in battle['units'] if v['id']==u['id'])[k] for k in ('str','agi','wits','emp'))]
@@ -426,6 +434,7 @@ class Game:
             if type(wp)!=int or wp<0 or wp>caster['wp']:raise ValueError('Недостаточно силы воли.')
             caster['wp']-=wp;victim[attribute]=max(0,victim[attribute]-damage)
             battle['log']=(battle['log']+[f'Мастер: {note.strip()}. {victim["name"]}: {attribute} −{damage}.'])[-300:]
+            battle['publicLog']=(battle.get('publicLog',battle['log'][:-1])+[battle['log'][-1]])[-300:]
             battle['event']=dict(id=secrets.token_hex(8),actor=actor,target=target,hitIds=[target] if damage else [],kind='cast',time=time.time())
             room['combatRevision']+=1
             for c in room['characters']:
@@ -442,18 +451,22 @@ class Game:
             msg=str(data.get('text','')).strip()[:1000]
             if msg: room['log'].append(dict(name=s['name'],text=msg))
         elif action=='roll':
-            pools=[]
+            private=dice_visibility(s,data)
+            counts=[]
             for key in ('base','skill','gear'):
                 n=data.get(key,0)
-                if type(n)!=int or not 0<=n<=20: raise ValueError('Пул: от 0 до 20 костей.')
-                pools.append([secrets.randbelow(6)+1 for _ in range(n)])
-            mod=data.get('modifier',0)
-            if type(mod)!=int or not -10<=mod<=10: raise ValueError('Модификатор: от −10 до +10.')
-            n=data.get('skill',0)+mod
-            pools[1]=[secrets.randbelow(6)+1 for _ in range(abs(n))]
-            hits=sum(v==6 for v in pools[0]+pools[2])+sum(v==6 for v in pools[1])*(1 if n>=0 else -1)
-            room['log'].append(dict(name=s['name'],text=f'Проверка: база {pools[0]}, навык {pools[1]}'+
-                                   (' (отрицательные)' if n<0 else '')+f', снаряжение {pools[2]}. Успехов: {max(0,hits)}.'))
+                if type(n)!=int or not 0<=n<=20:raise ValueError('Пул: от 0 до 20 костей.')
+                counts.append(n)
+            mod=data.get('modifier',0);sides=data.get('artifact',0)
+            if type(mod)!=int or not -10<=mod<=10:raise ValueError('Модификатор: от −10 до +10.')
+            if type(sides)!=int or sides not in (0,8,10,12):raise ValueError('Артефакт: D8, D10 или D12.')
+            n=counts[1]+mod;counts[1]=abs(n)
+            pools=[[secrets.randbelow(6)+1 for _ in range(count)] for count in counts]
+            art=[secrets.randbelow(sides)+1] if sides else []
+            hits=sum(v==6 for v in pools[0]+pools[2])+sum(v==6 for v in pools[1])*(1 if n>=0 else -1)+sum(max(0,v//2-2) for v in art)
+            groups=[dice_group('base',pools[0]),dice_group('skill',pools[1],negative=n<0),dice_group('gear',pools[2])]
+            if art:groups.append(dice_group('artifact',art,sides))
+            publish_dice(room,s['name'],'Свободная проверка',groups,f'Успехов: {max(0,hits)}.',private)
         else:
             raise ValueError('Неизвестное действие.')
         stamp_entries(room,previous_logs,action)

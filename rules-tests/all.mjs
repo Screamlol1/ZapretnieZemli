@@ -14,3 +14,4 @@ import './workshop.test.mjs';
 import './journal.test.mjs';
 
 import './progression.test.mjs';
+import './dice.test.mjs';

@@ -1,3 +1,4 @@
+import {traceDice,tracePool,diceGroup} from './public/dice-trace.js';
 import {protection,rollArtifact,artifactTotal} from './public/equipment-dice.js';
 import {activeUnit,hexDistance,lineOfSight,battleDie,canSpend,BATTLE_WEAPONS,weaponFor} from './public/tools/battle-rules.js';
 export function monsterAttack(battle,targetId,index,push=false,d=battleDie){
@@ -5,7 +6,7 @@ export function monsterAttack(battle,targetId,index,push=false,d=battleDie){
  if(battle.phase!=='combat'||!monster?.monster||monster.str<=0||!monster.slow)throw Error('Нет медленного действия чудовища.');
  if(push)throw Error('Атаки чудовища нельзя форсировать.');
  if(!target||target.team===monster.team||target.str<=0)throw Error('Выберите действующую цель.');
- if(index==='random')index=d(6)-1;
+ if(index==='random'){index=d(6)-1;traceDice(battle,monster,'Выбор атаки чудовища',[diceGroup('table',[index+1])],`Атака: ${index+1}.`);}
  if(!Number.isInteger(index)||index<0||index>5)throw Error('Выберите атаку D6.');
  const a=monster.monster.attacks[index];
  if(hexDistance(monster,target)>a.range||!lineOfSight(battle,monster,target))throw Error('Цель вне дальности или закрыта стеной.');
@@ -22,11 +23,12 @@ export function monsterAttack(battle,targetId,index,push=false,d=battleDie){
    if(!gear||mode==='weapon'&&weaponFor(target).ranged)base=undefined;
    else if(mode==='weapon'&&!weaponFor(target).parrying)modifier=-2;
   }
-  if(base!==undefined){if(target.fast)target.fast--;else target.slow--;const sd=skill+modifier;defense=Math.max(0,hits(roll(base))+hits(roll(Math.abs(sd)))*(sd<0?-1:1)+hits(roll(gear))+artifactTotal(rollArtifact(mode==='shield'?target.shieldArtifact:mode==='weapon'?target.weaponArtifact:0,d)));}
+  if(base!==undefined){if(target.fast)target.fast--;else target.slow--;const sd=skill+modifier;const p={base:roll(base),skill:roll(Math.abs(sd)),gear:roll(gear),negative:sd<0,artifact:rollArtifact(mode==='shield'?target.shieldArtifact:mode==='weapon'?target.weaponArtifact:0,d)};defense=Math.max(0,hits(p.base)+hits(p.skill)*(sd<0?-1:1)+hits(p.gear)+artifactTotal(p.artifact));tracePool(battle,target,'Защита от чудовища',p);}
  }
- const dice=roll(a.dice),net=hits(dice)-defense;let damage=0,armor=[];
- if(net>0){damage=a.damage+net-1;if(a.type==='physical'){const saved=protection(target,damage,d);armor=saved.dice;damage=saved.taken;target.str=Math.max(0,target.str-damage);}else target.wits=Math.max(0,target.wits-damage);}
+ const dice=roll(a.dice),net=hits(dice)-defense;traceDice(battle,monster,a.name,[diceGroup('monster',dice)],`Успехов: ${hits(dice)}.`);let damage=0,armor=[];
+ const oldLogLength=battle.log.length;
+ if(net>0){damage=a.damage+net-1;if(a.type==='physical'){const saved=protection(target,damage,d);armor=saved.dice;damage=saved.taken;traceDice(battle,target,'Броня',[diceGroup('armor',armor),...saved.artifacts.map(a=>diceGroup('artifact',[a.value],a.sides))],`Поглощено: ${saved.stopped}. Урон: ${saved.taken}.`);target.str=Math.max(0,target.str-damage);}else target.wits=Math.max(0,target.wits-damage);}
  battle.log.push(`${monster.name}: D6 ${index+1} · ${a.name}, [${dice}], защита ${defense}, броня [${armor}] → ${target.name}, ${a.type==='fear'?'Разум':'Телосложение'} −${damage}. ${a.note}`);
  if(target.str===0&&target.monster)battle.log.push(`${target.name} погибает или умирает; критическая травма не бросается.`);
- battle.log=battle.log.slice(-300);return battle;
+ battle.commandLog?.push(...battle.log.slice(oldLogLength));battle.log=battle.log.slice(-300);return battle;
 }

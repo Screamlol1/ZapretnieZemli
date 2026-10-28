@@ -3,10 +3,11 @@ export const journalKinds={chat:'Сообщения',check:'Проверки',jo
 const quarters=['утро','день','вечер','ночь'];
 const skills={survive:'Выживание',scout:'Наблюдательность',endure:'Стойкость',craft:'Ремесло',shoot:'Стрельба'};
 export function journalEntries(s){
- const entries=(s.log||[]).map((e,i)=>({...e,index:i,kind:journalKinds[e.kind]?e.kind:e.name==='Путешествие'?'journey':/^Проверка:/.test(e.text)?'check':'other'}));
+ const entries=(s.log||[]).filter(e=>!e.private||s.me.role==='gm').map((e,i)=>({...e,index:i,kind:journalKinds[e.kind]?e.kind:e.name==='Путешествие'?'journey':/^Проверка:/.test(e.text)?'check':'other'}));
  for(const h of s.journey?.history||[]){
   if(h.private&&s.me.role!=='gm')continue;
   for(const r of h.rolls||[]){
+   if(r.diceEvent)continue;
    if(s.me.role!=='gm'&&(r.skill==='scout'||!s.characters.some(c=>c.id===r.character&&c.owner===s.me.owner)))continue;
    entries.push({name:r.name,kind:'check',day:h.day,quarter:h.quarter,index:entries.length,text:`${skills[r.skill]||r.skill}: ${r.hits} успехов. База [${r.base}], навык [${r.skillDice}]${r.negative?' (отрицательный)':''}, снаряжение [${r.gear}]${(r.artifacts||[]).map(a=>`, D${a.sides} [${a.value}]`).join('')}.`,private:r.skill==='scout'});
   }
