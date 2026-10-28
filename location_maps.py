@@ -5,7 +5,7 @@ import math
 import random
 import secrets
 from campaign_rules import coordinate
-from location_editor import edit as edit_plan
+from location_editor import edit as edit_plan, snapshot, remember, undo, feature_bounds
 
 KINDS = {'settlement', 'camp', 'fortress', 'ruins', 'dungeon', 'cave'}
 ART_IDS = ('thatch','shingle','tile','barn','tavern','smithy','chapel','manor','keep','tower','gate','ruin','tent','pavilion','supplies','well','market','fire','bridge','oak','pine','rocks','room','cave')
@@ -148,12 +148,14 @@ def apply(room, session, data):
         saved=dict(id=old['id'] if old else secrets.token_hex(12),version=old['version']+1 if old else 1,
                    title=title,kind=cfg['kind'],settings=cfg,source=src,revealed=False,**generate(cfg))
         room['locationMaps']=[m for m in maps if m['id']!=saved['id']]+[saved]
+        room.get('locationHistory',{}).pop(saved['id'],None)
         if parent:
             parent['locationMapId']=saved['id']
             if src['kind']=='workshop':parent['version']+=1
         return
     m=find(room,data.get('id'))
     if data.get('version')!=m['version']:raise ValueError('Карта уже изменена. Обновите её перед сохранением.')
+    before=snapshot(m) if action in ('locationMapEdit','locationMapFeature') else None
     if action=='locationMapReveal':
         if type(data.get('revealed'))!=bool:raise ValueError('Выберите видимость карты.')
         if data['revealed'] and m['source']['kind']=='workshop':raise ValueError('Сначала разместите заготовку на общей карте.')
@@ -163,6 +165,8 @@ def apply(room, session, data):
         m['revealed']=data['revealed']
     elif action=='locationMapEdit':
         edit_plan(room,m,data,ART_IDS)
+    elif action=='locationMapUndo':
+        undo(room,m)
     elif action=='locationMapFeature':
         f=next((f for f in m['features'] if f['id']==data.get('feature')),None)
         if not f:raise ValueError('Объект не найден.')
@@ -177,16 +181,19 @@ def apply(room, session, data):
             if x<0 or y<0 or x+fw>m['width'] or y+fh>m['height']:raise ValueError('Объект такого размера выходит за границы плана.')
             if f.get('points'):f['points']=[[x+(px-f['x'])*fw/f['w'],y+(py-f['y'])*fh/f['h']] for px,py in f['points']]
             f.update(x=x,y=y,w=fw,h=fh)
+            feature_bounds(m,f)
         f.update(label=text(data.get('label','')),note=text(data.get('note',''),1200),gmNote=text(data.get('gmNote',''),1200),secret=data['secret'],art=art)
     elif action=='locationMapDelete':
         if data.get('confirmed') is not True:raise ValueError('Подтвердите удаление карты.')
         room['locationMaps']=[x for x in maps if x['id']!=m['id']]
+        room.get('locationHistory',{}).pop(m['id'],None)
         for cell in room['maps']['world'].values():
             if cell.get('locationMapId')==m['id']:cell.pop('locationMapId')
         for e in room.get('workshop',[]):
             if e.get('locationMapId')==m['id']:e.pop('locationMapId');e['version']+=1
         return
     else:raise ValueError('Неизвестное действие карты локации.')
+    if before is not None:remember(room,m,before)
     m['version']+=1
 
 def publish_workshop_map(room, entry, cell, p):
@@ -195,6 +202,7 @@ def publish_workshop_map(room, entry, cell, p):
         cell['locationMapId']=m['id']
 
 def redact(room):
+    room.pop('locationHistory',None)
     visible=[]
     for m in room.get('locationMaps',[]):
         if not m.get('revealed') or m['source']['kind']=='workshop':continue
@@ -202,6 +210,7 @@ def redact(room):
             cell=room['maps']['world'].get(f"{m['source']['x']},{m['source']['y']}",{})
             if cell.get('hidden') or cell.get('siteHidden') or cell.get('locationMapId')!=m['id']:continue
         safe=copy.deepcopy(m);safe.pop('settings',None) # Seed could reconstruct secret rooms.
+        safe.pop('undoCount',None)
         ids={f['id'] for f in safe['features'] if not f['secret']}
         safe['features']=[{k:v for k,v in f.items() if k not in ('gmNote','secret')} for f in safe['features'] if f['id'] in ids]
         safe['paths']=[{k:v for k,v in p.items() if k!='secret'} for p in safe['paths'] if not p.get('secret') and all(i in ids for i in p['refs'])]

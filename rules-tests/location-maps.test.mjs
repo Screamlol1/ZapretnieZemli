@@ -14,3 +14,7 @@ const manual={...m,paths:[...m.paths,{style:'wall',refs:[],points:[[10,10],[50,5
 const publicManual=playerPlan(manual);assert.equal(publicManual.tokens.length,1);assert.equal(publicManual.paths.length,0);
 const exported=locationSVG(manual,{playerView:true,interactive:false});assert.ok(exported.includes('&lt;Hero&gt;'));assert.ok(!exported.includes('SECRET-TOKEN'));assert.ok(!exported.includes('data-location-token'));assert.ok(!exported.includes('data-location-path'));
 assert.ok(locationSVG(manual).includes('data-location-token="t"'));assert.equal(manual.tokens.length,2);
+
+const turned={...m,features:[{...m.features[0],rotation:90}],paths:[],tokens:[{id:'t',x:100,y:100,name:'Hero',rotation:45}],undoCount:3};
+const turnedSVG=locationSVG(turned);assert.ok(turnedSVG.includes('rotate(90 100 90)'));assert.ok(turnedSVG.includes('rotate(45 100 100)'));assert.equal(playerPlan(turned).undoCount,undefined);
+const turnedDoors=passageDoors({...turned,paths:[{style:'passage',refs:['a'],points:[[0,90],[100,90]]}]},turned.features[0]);assert.ok(Math.abs(turnedDoors[0].x-60)<1e-8);assert.ok(Math.abs(turnedDoors[0].y-90)<1e-8);

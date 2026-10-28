@@ -168,4 +168,71 @@ class LocationMapTests(unittest.TestCase):
         self.assertGreater(changed['version'],m['version'])
         self.assertFalse(any(t['characterId']==hidden['id'] for t in changed['tokens']))
 
+    def undo(self,m):
+        return self.game.action(self.gs,dict(action='locationMapUndo',id=m['id'],version=m['version']))['locationMaps'][0]
+
+    def test_rotation_bounds_movement_and_undo(self):
+        m=self.create();m=self.manual(m,op='add',art='bridge',widthMeters=20,heightMeters=4,point=[300,300],label='Мост')
+        f=m['features'][-1];before=m
+        m=self.manual(m,op='rotate',kind='feature',target=f['id'],angle=-90)
+        self.assertEqual(m['features'][-1]['rotation'],270)
+        m=self.manual(m,op='move',kind='feature',target=f['id'],point=[400,400])
+        self.assertEqual(m['features'][-1]['rotation'],270)
+        m=self.undo(m);self.assertEqual(m['features'][-1]['x'],f['x'])
+        m=self.undo(m);self.assertEqual(m['features'],before['features'])
+        m=self.manual(m,op='move',kind='feature',target=f['id'],point=[0,0])
+        for angle in (90,float('nan'),361,True,'90'):
+            with self.assertRaises(ValueError):self.manual(m,op='rotate',kind='feature',target=f['id'],angle=angle)
+        m=self.undo(m)
+        m=self.manual(m,op='rotate',kind='feature',target=f['id'],angle=45)
+        with self.assertRaises(ValueError):self.manual(m,op='move',kind='feature',target=f['id'],point=[0,0])
+        m=self.undo(m);m=self.undo(m);self.assertNotIn(f['id'],[f['id'] for f in m['features']])
+        self.assertEqual(m['undoCount'],0)
+        with self.assertRaises(ValueError):self.undo(m)
+
+    def test_undo_history_is_bounded_private_persistent_and_versioned(self):
+        m=self.create();f=m['features'][0]
+        for n in range(25):m=self.manual(m,op='rotate',kind='feature',target=f['id'],angle=n+1)
+        self.assertEqual(m['undoCount'],20)
+        room=self.game.room(self.gs['room']);self.assertEqual(len(room['locationHistory'][m['id']]),20)
+        self.assertNotIn('locationHistory',self.game.view(self.gs))
+        self.game.action(self.gs,dict(action='locationMapReveal',id=m['id'],version=m['version'],revealed=True))
+        public=self.game.view(self.ps);self.assertNotIn('locationHistory',public);self.assertNotIn('undoCount',public['locationMaps'][0])
+        with self.assertRaises(PermissionError):self.game.action(self.ps,dict(action='locationMapUndo',id=m['id'],version=m['version']))
+        with self.assertRaises(ValueError):self.undo(m)
+        self.game.db.close();self.game=Game(self.path,reference_root=Path(self.tmp.name)/'local-assets')
+        auth=self.game.reconnect(dict(code=self.gm['code'],resume=self.gm['resume']));self.gs=self.game.session(auth['token'])
+        m=self.game.view(self.gs)['locationMaps'][0]
+        for n in range(20):m=self.undo(m)
+        self.assertEqual(m['features'][0]['rotation'],5);self.assertEqual(m['undoCount'],0);self.assertTrue(m['revealed'])
+
+    def test_undo_restores_deleted_room_corridors_notes_paths_and_tokens(self):
+        m=self.game.action(self.gs,dict(action='locationMapGenerate',title='Залы',settings=dict(kind='dungeon',seed='undo')))['locationMaps'][0]
+        before=m;m=self.manual(m,op='remove',kind='feature',target=m['features'][0]['id']);m=self.undo(m)
+        self.assertEqual(m['features'],before['features']);self.assertEqual(m['paths'],before['paths'])
+        m=self.edit(m);m=self.undo(m);self.assertEqual(m['features'],before['features'])
+        npc=support.CampaignTests.make_npc(self);m=self.manual(m,op='token',characterId=npc['id'],point=[300,300]);t=m['tokens'][0]
+        m=self.manual(m,op='rotate',kind='token',target=t['id'],angle=90);self.assertEqual(m['tokens'][0]['rotation'],90)
+        m=self.manual(m,op='remove',kind='token',target=t['id']);m=self.undo(m);self.assertEqual(m['tokens'][0]['rotation'],90)
+        m=self.manual(m,op='path',style='wall',points=[[200,200],[300,200]])
+        old=m['paths'][-1];m=self.manual(m,op='rotate',kind='path',target=len(m['paths'])-1,angle=90)
+        self.assertEqual(m['paths'][-1]['points'],[[250,150],[250,250]])
+        m=self.undo(m);self.assertEqual(m['paths'][-1],old)
+        self.game.action(self.gs,dict(action='deleteCharacter',id=npc['id']))
+        m=self.game.view(self.gs)['locationMaps'][0];self.assertEqual(m['undoCount'],0)
+        with self.assertRaises(ValueError):self.undo(m)
+
+    def test_line_rotation_keeps_pivot_and_new_generation_clears_history(self):
+        from location_editor import rotate_point
+        m=self.create();pts=[[200,200],[300,200],[250,260]]
+        m=self.manual(m,op='path',style='road',points=pts);index=len(m['paths'])-1
+        m=self.manual(m,op='rotate',kind='path',target=index,angle=45)
+        m=self.manual(m,op='rotate',kind='path',target=index,angle=90)
+        for actual,original in zip(m['paths'][index]['points'],pts):
+            expected=rotate_point(original,[250,230],90)
+            self.assertAlmostEqual(actual[0],expected[0],places=2);self.assertAlmostEqual(actual[1],expected[1],places=2)
+        self.game.action(self.gs,dict(action='locationMapGenerate',id=m['id'],version=m['version'],replace=True,title='Новый план',settings=dict(kind='camp')))
+        m=self.game.view(self.gs)['locationMaps'][0];self.assertFalse(m.get('undoCount'))
+        with self.assertRaises(ValueError):self.undo(m)
+
 if __name__=='__main__':unittest.main()

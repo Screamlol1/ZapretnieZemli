@@ -169,6 +169,7 @@ class Game:
         if s['role']=='gm':
             room['owners']=[dict(owner=x['owner'],name=x.get('name','Участник'),role=x['role']) for x in identities.values()]
         room.pop('combatOwners',None)
+        room.pop('locationHistory',None)
         artwork=room.get('mapArtwork',{})
         room['mapArtwork']={k:v for k,v in artwork.items() if k in ('style','revision')}
         room['mapArtwork']['referenceAvailable']=(self.reference_root/'forbidden-lands.jpg').is_file()
@@ -327,8 +328,11 @@ class Game:
             room['tokens']=[t for t in room['tokens'] if t.get('characterId')!=data.get('id')]
             for plan in room.get('locationMaps',[]):
                 kept=[t for t in plan.get('tokens',[]) if t.get('characterId')!=data.get('id')]
-                if len(kept)!=len(plan.get('tokens',[])):
+                history=room.get('locationHistory',{}).get(plan['id'],[])
+                referenced=any(t.get('characterId')==data.get('id') for change in history for t in change.get('tokens',[]))
+                if referenced or len(kept)!=len(plan.get('tokens',[])):
                     plan['tokens']=kept;plan['version']+=1
+                    room.get('locationHistory',{}).pop(plan['id'],None);plan['undoCount']=0
         elif action=='worldLayout':
             layout=data.get('layout')
             if layout not in ('legacy','ravenland'):raise ValueError('Неизвестная сетка.')

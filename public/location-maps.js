@@ -40,7 +40,7 @@ export function locationMapsUI(getState,action,show){
   if(!m&&spec.source){let src=spec.source;if(src.kind==='workshop'){const e=getState().workshop?.find(e=>e.id===src.id);if(e?.published?.kind==='place')src={kind:'hex',x:e.published.x,y:e.published.y};}m=maps().find(m=>m.source.kind===src.kind&&(src.kind==='hex'?m.source.x===src.x&&m.source.y===src.y:src.kind==='workshop'?m.source.id===src.id:false));source=src;}
   editor.reset();selected=m?.id||'';source=m?.source||spec.source||{kind:'library'};shown='';featureId='';dirty=false;zoom=1;last='';error('');show();generator(m,spec);$('[data-location-generator]').open=!m;render();
  }
- async function run(data){if(busy)return false;busy=true;root.querySelectorAll('button').forEach(b=>b.disabled=true);try{const ok=await action(data);if(!ok)error(document.getElementById('error').textContent||'Не удалось сохранить карту.');else error('');return ok;}finally{busy=false;root.querySelectorAll('button').forEach(b=>b.disabled=false);}}
+ async function run(data){if(busy)return false;busy=true;root.querySelectorAll('button').forEach(b=>b.disabled=true);try{const ok=await action(data);if(!ok)error(document.getElementById('error').textContent||'Не удалось сохранить карту.');else error('');return ok;}finally{busy=false;root.querySelectorAll('button').forEach(b=>b.disabled=false);editor.render();}}
  form.onsubmit=async e=>{
   e.preventDefault();const m=current(),v=new FormData(form);if(m&&!confirm('Пересоздать план? Подписи и секреты объектов будут сброшены, карта снова станет скрытой.'))return;
   const ids=new Set(maps().map(m=>m.id)),cfg=Object.fromEntries(['kind','size','density','seed'].map(k=>[k,v.get(k)]));cfg.water=form.elements.water.checked;cfg.walls=form.elements.walls.checked;
