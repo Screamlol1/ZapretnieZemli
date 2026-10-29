@@ -9,3 +9,60 @@
 .setup-panel{background:#192b35;border:1px solid #35505e;border-radius:9px;padding:16px;margin-bottom:16px}.setup-panel h2{font-size:18px;margin:0 0 12px}.map-choices{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.map-choice{display:flex;align-items:center;gap:14px;text-align:left;background:#14272d;border:1px solid #3a535e;border-radius:7px;padding:10px;color:#e5edf0}.map-choice.chosen{border:2px solid #efca76;background:#2c3b36}.map-choice svg{width:104px;height:72px;flex:none;border-radius:4px;background:#32442a}.map-choice strong,.map-choice small{display:block}.map-choice small{color:#aebfbc;font-size:12px;margin-top:5px}.squad-picker{margin-top:14px}.squad-picker summary{cursor:pointer;color:#eac777;font-weight:600}.character-choices{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.pick-card{display:flex;align-items:center;gap:8px;background:#12262e;border:1px solid #344f5b;border-radius:6px;padding:9px}.pick-card svg{width:44px;height:58px;flex:none}.pick-card strong,.pick-card small{display:block}.pick-card small{font-size:12px;color:#acc1cb}.pick-card select{margin-top:7px;width:100%;font-size:13px}.pick-card>div{flex:1;min-width:0}.mishap-panel{background:#422d36;border:1px solid #bd7a83;border-radius:7px;padding:16px;margin-bottom:16px}.mishap-panel h2{font-size:18px;margin:0}.mishap-panel textarea{display:block;min-height:75px;width:100%;box-sizing:border-box;background:#17232c;color:#edf2f4;border:1px solid #75838b;padding:10px;margin-top:6px;font:inherit}.mishap-panel select{max-width:350px}.mishap-panel button{margin-top:10px}#magic-panel{border-top:1px solid #557079;margin-top:18px;padding-top:4px}#magic-panel input[type=number]{width:70px;padding:8px}#magic-panel input[type=checkbox]{width:auto}#magic-panel .help{font-size:13px;padding-bottom:0}#cast-spell{width:100%;margin-top:10px;background:#6a466d;border-color:#ac83ac;color:#fff}#cast-spell:disabled{opacity:.45}@media(max-width:1150px){.character-choices{grid-template-columns:repeat(3,1fr)}.map-choice{display:block}.map-choice svg{width:100%;height:70px}}@media(max-width:650px){.character-choices{grid-template-columns:repeat(2,1fr)}.map-choice{padding:7px}.map-choice strong{font-size:13px}.map-choice small{display:none}.map-choices{gap:5px}}@media(max-width:380px){.character-choices{grid-template-columns:1fr}}
 
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}.map-choice{display:grid;grid-template-columns:minmax(0,1fr) 104px;gap:6px 10px}.map-choice strong,.map-choice small{grid-column:1}.map-choice svg{grid-column:2;grid-row:1 / 3}@media(max-width:1150px){.map-choice{display:block}.map-choice svg{margin-top:7px}}
+
+/* Keep the standalone battle workspace in the same world as the shared table. */
+:root { color-scheme: dark; --paper: #1b2921; --ink: #eee9db; --green: #a9c69b; --red: #e49b88; background: #111b16; color: var(--ink); }
+html { scrollbar-gutter: stable; }
+body { background: radial-gradient(ellipse at top left, #253b2955, transparent 70%), #111b16; }
+header { background: #17251e; border-color: #8b78504d; color: #e4c98e; min-height: 64px; }
+header a { color: #dfc48b; text-underline-offset: 3px; }
+main { padding-bottom: 40px; }
+h1, aside h2, .lower h2 { font-family: Georgia, serif; }
+.battle-top p, .map-tag, .team-label, .help, .roster small { color: #afbfab; }
+button, select, input { border-radius: 6px; }
+button:not(.hex) { transition: background-color .12s, border-color .12s; }
+button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible, summary:focus-visible { outline: 3px solid #f1d698; outline-offset: 3px; }
+button:hover:not(:disabled) { background: #3a503b; border-color: #bca16b; }
+.toolbar button, .turn-buttons button { min-height: 42px; }
+.primary { background: #c3a76d; border-color: #dac08a; color: #152119; }
+.primary:hover:not(:disabled) { background: #dfc48b; }
+#status { background: #22372b; border-color: #617153; border-radius: 7px; color: #e8e3d2; }
+.flow-step { color: #e1d6b7; }
+aside { background: #1b2921; border-color: #415740; border-radius: 9px; }
+aside h3, .fighter-details summary, .turn-buttons { border-color: #42563f; }
+.fighter-details summary { color: #ddc78e; }
+.initiative { background: #15241b; padding: 12px; }
+.initiative button { background: #293d2d; border-color: #526448; color: #e6e3d4; }
+.initiative .current { background: #d6b97b; border-color: #ebd49c; color: #152119; }
+select, input { background: #132119; border-color: #53674c; color: #eee9db; min-width: 0; min-height: 40px; }
+.unit-stats div { background: #14221a; border-color: #465b41; }
+.unit-stats small { color: #b2c0a9; }
+.actions-grid button { background: #2b3e2d; border-color: #516345; }
+.actions-grid button small { color: #c5cfb8; }
+.action-budget .available { color: #c5e4bc; background: #2c4630; border-color: #66805a; }
+.action-budget .spent { color: #b0b7a7; border-color: #4c5a43; }
+.roster button { background: #1c3022; border-color: #435d40; }
+.battle-log { background: #111e16; border-color: #3e543d; border-radius: 7px; }
+.rulebook { border-color: #526348; border-radius: 7px; }
+.setup-panel { background: #1b2921; border-color: #415740; }
+.map-choice, .pick-card { background: #172b1e; border-color: #435d40; color: #eee9db; }
+.map-choice.chosen { background: #30412d; border-color: #d6b97b; }
+.pick-card small, .map-choice small { color: #b2c0a9; }
+.squad-picker summary { color: #ddc78e; }
+.mishap-panel { background: #3b2926; border-color: #b47e6c; }
+.mishap-panel textarea { background: #18231a; border-color: #67745a; color: #eee9db; }
+#magic-panel { border-color: #526348; }
+.lower > *, .arena-layout > * { min-width: 0; }
+@media (max-width: 650px) {
+  .toolbar { gap: 7px; }
+  .toolbar button { flex: 1 1 105px; font-size: 13px; }
+  .battle-top h1 { font-size: 24px; }
+  aside { padding: 14px; }
+  .initiative { flex-wrap: wrap; }
+  .pick-card { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 4px 6px; align-content: start; }
+  .pick-card > div { display: contents; }
+  .pick-card svg { width: 36px; height: 50px; grid-column: 1; grid-row: 1 / 3; }
+  .pick-card strong, .pick-card small { grid-column: 2; min-width: 0; overflow-wrap: anywhere; }
+  .pick-card select { grid-column: 1 / -1; width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) { button, .hex { transition: none; } }

@@ -20,3 +20,60 @@
 .actions{flex-wrap:wrap}.actions .campaign-save{background:#b79b62;color:#172016;border-color:#cfb57d}.actions .campaign-save:hover{background:#cfb57d}@media(max-width:650px){.actions .campaign-save{flex:1 0 100%;padding:10px;font-size:14px}}
 
 .pip[aria-disabled=true]{opacity:.35;cursor:help}.pip.filled[aria-disabled=true]{opacity:.75}.pip:focus-visible{outline:2px solid #6d532d;outline-offset:3px}.allocation-feedback:empty{display:none}.allocation-feedback{padding:8px;border-left:3px solid #a17c3e;background:#e9dfc6}.skill-row .stat-name small{display:block;font-size:10px;color:var(--muted)}.development-panel{border:1px solid #aa915e;padding:12px;margin:14px 0}.development-panel[hidden]{display:none}@media print{.allocation-feedback,#open-development{display:none}}
+
+/* Screen controls share the table's forest/gold palette; printed sheets remain paper. */
+@media screen {
+  :root { --dark: #17251e; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  html { scrollbar-gutter: stable; }
+  body { background: #dce0d4; background-image: radial-gradient(ellipse at top left, #becabb, transparent 60%); }
+  .toolbar { border-bottom: 1px solid #b8a16b66; box-shadow: 0 3px 20px #12201626; gap: 16px; }
+  .brand { letter-spacing: -.03em; color: #e5ca8e; }
+  .brand span { color: #eee9db; }
+  .actions { flex-wrap: wrap; justify-content: flex-end; }
+  .actions button { min-height: 42px; border-radius: 5px; }
+  .actions .primary { background: #c3a76d; border-color: #dac08a; color: #152119; }
+  .actions .primary:hover { background: #dfc48b; }
+  .ledger { border-top: 2px solid #788367; }
+  .ledger select, .ledger button { min-height: 40px; border-radius: 4px; }
+  .ledger .generator select { background: #e7e9e1; border: 1px solid #9eab92; padding: 8px; }
+  .ledger .generator { border-radius: 6px; }
+  .sheet { border-radius: 3px; box-shadow: 0 10px 40px #21301926; }
+  .sheet :is(input, select, textarea) { min-width: 0; }
+  .sheet input, .sheet select { min-height: 40px; }
+  .sheet label { min-width: 0; }
+  .sheet button:not(.pip):not(.remove) { min-height: 34px; }
+  .sheet select:focus-visible, .sheet input:focus-visible, .sheet textarea:focus-visible { outline: 2px solid #7b5d32; outline-offset: 2px; background-color: #e9dfc74d; }
+  .name-line > label { min-width: 0; }
+  .sheet .name-line input { width: 100%; }
+  .small { line-height: 1.75; }
+  .budget { padding: 14px 0; }
+  .budget-track { height: 5px; border-radius: 3px; overflow: hidden; }
+  .validation { border-radius: 6px; }
+  .sources { border-radius: 6px; }
+  .sources summary { padding: 5px 0; }
+  .sources a { text-underline-offset: 3px; }
+  @media (max-width: 950px) {
+    .toolbar { flex-wrap: wrap; }
+    .actions { flex: 1 1 100%; }
+    .ledger { padding-top: 12px; }
+  }
+  @media (max-width: 650px) {
+    .toolbar { padding: 12px; }
+    .actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+    .actions button { padding: 8px 4px; font-size: 12px; }
+    .actions .campaign-save { grid-column: 1 / -1; }
+    main { padding-inline: 10px; }
+    .sheet { padding: 24px 18px 20px; outline-offset: -7px; }
+    .identity { gap: 12px; }
+    .skill-row .pip { width: 21px; height: 21px; }
+    .skill-row .pips { gap: 5px; }
+    .sheet .stat-name { max-width: calc(100% - 145px); }
+    .sheet .attribute .stat-name { max-width: calc(100% - 130px); }
+    .sheet .stat-name small { line-height: 1.45; }
+    .life-transfer { flex-wrap: wrap; }
+    .sheet .coin-line { flex-wrap: wrap; }
+    .sheet .resources { grid-template-columns: minmax(0, 1fr); }
+    .sheet .resource { min-height: 44px; }
+  }
+  @media (prefers-reduced-motion: reduce) { #toast { transition: none; } }
+}

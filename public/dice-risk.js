@@ -1,3 +1,4 @@
+import {canPushPool} from './dice-pools.js';
 export function riskAction(s,e){
  const r=e?.risk;if(!r||!s)return null;
  const c=s.characters.find(c=>c.id===r.character),gm=s.me.role==='gm';
@@ -9,6 +10,10 @@ export function riskAction(s,e){
  }
  if(r.action==='combat')return s.combat?.pendingRisk?.id===r.roll?{action:'combatAction',revision:s.combatRevision,command:{action:'risk',roll:r.roll,push:true}}:null;
  if(r.action==='journey')return s.journeyRisk?.id===r.roll?{action:'travelRisk',roll:r.roll,push:true}:null;
+ if(r.action==='repair'){
+  const item=s.items?.find(i=>i.id===r.item),p=item?.repair;
+  return p?.status==='rolled'&&p.roll?.id===r.roll?{action:'inventoryRepair',op:'push',id:item.id,version:item.version,roll:r.roll,pushAvailable:!p.roll.pushed&&canPushPool({...p.roll,skill:p.roll.skillDice,artifact:p.roll.artifacts})}:null;
+ }
  if(r.action==='character'){
   const check=e.private?s.gmChecks?.[c.id]:c.runtime?.lastCheck;
   if(check?.id!==r.roll||check.pushed||check.accepted||['setup','combat'].includes(s.combat?.phase)&&s.combat.units.some(u=>u.id===c.id)||s.journey.phase==='resolving'&&s.journey.party.includes(c.id))return null;

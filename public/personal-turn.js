@@ -22,7 +22,7 @@ export function personalTurnUI(getState,send,details){
   const choices=own.map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
   if(hero.innerHTML!==choices)hero.innerHTML=choices;
   if(!own.some(c=>c.id===selected)){selected=own[0]?.id||'';version='';dirty=false;}
-  root.querySelector('h3').textContent=own.length===1?'Мой ход · '+own[0].name:'Мой ход';
+  root.querySelector('h3').textContent=(t.phase==='planning'?'Моя заявка':'Мои результаты')+(own.length===1?' · '+own[0].name:'');
   hero.value=selected;hero.disabled=pending;hero.parentElement.hidden=own.length<2;
   const empty=root.querySelector('[data-empty]');empty.hidden=own.length>0;empty.textContent='Ваш герой пока не включён в отряд. Попросите Мастера добавить его в состав.';
   const planning=t.phase==='planning',plan=t.plans[selected],nextVersion=JSON.stringify([selected,t.planVersions?.[selected]||0,plan]);
@@ -32,7 +32,7 @@ export function personalTurnUI(getState,send,details){
   root.querySelector('[data-plan-status]').textContent=message||(dirty?'Изменения ещё не заявлены.':plan?'Заявлено: '+jobs[plan.job]+'. Можно изменить до выполнения проверок.':'Выберите занятие и отправьте заявку.');
   root.querySelector('[data-wait]').textContent=status.reason||status.text;
   const participant=(t.cycleParticipants||[]).some(p=>p.owner===s.me.owner);
-  complete.hidden=planning||!participant;complete.disabled=pending||(t.pendingCount??t.pending.length)>0||s.combat?.phase==='combat';
+  complete.hidden=planning||!participant;complete.disabled=pending||!!s.journeyRisk||(t.pendingCount??t.pending.length)>0||s.combat?.phase==='combat';
   complete.textContent=t.completed?.[s.me.owner]?'Отменить моё подтверждение':'Мои действия и проверки завершены';
   const result=root.querySelector('[data-results]');result.hidden=planning;
   const checks=t.history.findLast(h=>h.plans&&h.day===t.day&&h.quarter===t.quarter)?.rolls||[];

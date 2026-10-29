@@ -5,6 +5,7 @@ export function travelStatus(s){
  const t=s.journey,gm=s.me.role==='gm',who=gm?'gm':s.me.owner,party=t.party.map(id=>s.characters.find(c=>c.id===id)).filter(Boolean),own=party.filter(c=>gm||c.kind==='pc'&&c.owner===s.me.owner),missing=party.filter(c=>!t.plans[c.id]),ownMissing=own.filter(c=>!t.plans[c.id]),pending=t.pendingCount??t.pending.length;
  const result={stage:t.phase==='planning'?0:2,action:'wait',text:'Ожидаем участников',reason:'',missing,party,own};
  if(s.combat?.phase==='combat')return {...result,text:'Идёт бой',reason:'Завершите бой перед действиями путешествия.'};
+ if(s.journeyRisk){const risk=s.journeyRisk,actor=s.characters.find(c=>c.id===risk.actor),own=gm||!risk.waiting&&!risk.private&&actor?.kind==='pc'&&actor.owner===s.me.owner;return {...result,stage:1,action:own?'risk':'wait',text:own?'Решить проверку путешествия':'Ожидаем решения по броску',reason:risk.waiting?'Мастер разрешает закрытую проверку.':`Проверка: ${actor?.name||'Мастер'}. Примите результат или пойдите на риск.`};}
  if(!party.length)return {...result,action:gm?'setup':'wait',text:gm?'Собрать отряд':'Мастер собирает отряд',reason:'Выберите участников и начальный гекс.'};
  if(pending)return {...result,stage:1,action:gm?'events':'wait',text:gm?'Разрешить события':'Ожидаем решения Мастера',reason:`Незавершённых событий: ${pending}.`};
  if(t.phase==='resolving'){
@@ -27,7 +28,7 @@ export function renderTravelStatus(s){
  const roster=`<ul>${status.party.map(c=>{const p=t.plans[c.id],present=s.members?.some(m=>m.owner===c.owner),own=gm||c.owner===s.me.owner;return `<li>${esc(c.name)} — ${p?esc(jobs[p.job]||p.job)+(p.role==='lead'?' · проводник':p.role==='watch'?' · дозорный':''):'ожидается заявка'}${!present?' · владелец не в сети':''}${own&&c.load?.overloaded?' · перегруз':''}</li>`;}).join('')}</ul>`;
  const route=`<p><strong>Отряд: ${label(t.position)}</strong> · ${t.route?.length?'Маршрут: '+t.route.map(label).join(' → '):'Маршрут не выбран'}</p>`;
  const note='<small>Четверть сменится после разрешения событий и подтверждения всех владельцев героев и Мастера.</small>';
- const markup=gm?`${progress}${route}<p class="${t.blocker?'editor-error':''}">${esc(status.reason)}</p><details data-party-status><summary>Отряд · ${status.party.length} персонажей</summary>${roster}</details>${note}`:`<details data-party-status><summary>Статус отряда · ${readiness} · ${label(t.position)}</summary>${progress}${route}${roster}${note}</details>`;
+ const markup=`<details data-party-status><summary>Отряд · ${status.party.length} персонажей · ${readiness} · ${label(t.position)}</summary>${progress}${route}<p class="${t.blocker?'editor-error':''}">${esc(status.reason)}</p>${roster}${note}</details>`;
  panel.classList.toggle('player-overview',!gm);
  if(panel.innerHTML!==markup){const open=panel.querySelector('[data-party-status]')?.open;panel.innerHTML=markup;if(open)panel.querySelector('[data-party-status]').open=true;}
  return status;

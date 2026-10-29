@@ -37,6 +37,18 @@ class PublicTestTests(unittest.TestCase):
             if r.headers.get('Content-Encoding')=='gzip':raw=gzip.decompress(raw)
             return r.status,dict(r.headers),json.loads(raw) if raw and r.headers.get('Content-Type','').startswith('application/json') else raw
 
+    def test_static_reload_and_state_polling_have_independent_limits(self):
+        self.serve(limits=RequestLimits({'read':(1,60),'static':(2,60)}))
+        self.assertEqual(self.request('/index.html')[0],200)
+        self.assertEqual(self.request('/app.js')[0],200)
+        self.assertEqual(self.request('/style.css')[0],429)
+        self.assertEqual(self.request('/api/health')[0],200)
+        self.assertEqual(self.request('/api/health')[0],429)
+        other={'CF-Connecting-IP':'192.0.2.17'}
+        self.assertEqual(self.request('/api/health',**other)[0],200)
+        self.assertEqual(self.request('/api/health',**other)[0],429)
+        self.assertEqual(self.request('/app.js',**other)[0],200)
+
     def test_conditional_state_tracks_presence_changes_and_checks_auth(self):
         self.serve()
         _,_,gm=self.request('/api/create',{'name':'GM'})

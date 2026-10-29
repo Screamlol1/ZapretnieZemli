@@ -39,10 +39,13 @@ def destination(room,raw,s):
 def owns(room,location,s):
     return location['kind']=='character' and any(c['id']==location['id'] and c['kind']=='pc' and c['owner']==s['owner'] and not c.get('hidden') for c in room['characters'])
 
-def editable(room,location,s):
+def editable(room,location,s,repair=False):
     if s['role']!='gm' and not owns(room,location,s):raise PermissionError('Можно управлять только своим инвентарём.')
     if location['kind']=='character':
         cid=location['id']
+        if not repair:
+            from inventory_repair import pending
+            if pending(room,cid):raise ValueError('Сначала примите результат ремонта или пойдите на риск в разделе «Предметы».')
         if room.get('combat',{}).get('phase') in ('setup','combat') and cid in room.get('combatOwners',{}):raise ValueError('Закройте бой перед изменением экипировки или инвентаря участника.')
         t=room.get('journey',{})
         if t.get('phase')=='resolving' and cid in t.get('party',[]):raise ValueError('Завершите действия текущей четверти перед изменением инвентаря.')
@@ -90,11 +93,20 @@ def public_items(room,s):
     result=[]
     for item in room.get('items',[]):
         if s['role']=='gm':result.append(item)
-        elif owns(room,item['location'],s) or item['location']['kind']=='hold':result.append({k:v for k,v in item.items() if k not in ('gmNote','maintenanceNote')})
+        elif owns(room,item['location'],s) or item['location']['kind']=='hold':
+            visible={k:v for k,v in item.items() if k not in ('gmNote','maintenanceNote')}
+            if item.get('repair'):
+                from inventory_repair import public_repair
+                visible['repair']=public_repair(item['repair'])
+            if visible.get('lastRepair',{}).get('private'):visible.pop('lastRepair')
+            result.append(visible)
     return result
 
 def apply(room,s,data):
     action=data['action'];gm=s['role']=='gm'
+    if action=='inventoryRepair':
+        from inventory_repair import apply as repair
+        return repair(room,s,data)
     if action in ('inventoryResource','itemAppearance','itemSplit','itemConsume','itemMerge'):
         from inventory_actions import apply as extra
         return extra(room,s,data)

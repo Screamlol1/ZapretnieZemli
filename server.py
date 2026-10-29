@@ -40,7 +40,7 @@ LOCK = threading.RLock()
 class RequestLimits:
     """Bounded per-address request windows for the public test server."""
     def __init__(self,limits=None):
-        self.limits=limits or {'auth':(30,60),'write':(240,60),'read':(1800,60)}
+        self.limits={'auth':(30,60),'write':(240,60),'read':(1800,60),'static':(6000,60),**(limits or {})}
         self.windows={};self.lock=threading.Lock();self.cleaned=0
 
     def retry_after(self,address,group):
@@ -161,6 +161,9 @@ class Game:
         room['mapTerrain']={'referenceCount':len(room.get('_worldBase',{}))}
         room.pop('_worldBase',None)
         identities=room.get('identities',{})
+        # Public identity metadata stays stable after a participant disconnects.
+        # Resume keys and account references never leave the server.
+        room['participantDirectory']=list({i['owner']:dict(owner=i['owner'],name=i.get('name','Участник'),role=i['role']) for i in identities.values()}.values())
         t=room['journey']
         t['cycleParticipants']=[dict(owner=owner,name='Мастер' if owner=='gm' else next((i.get('name','Игрок') for i in identities.values() if i['owner']==owner), 'Игрок'),
             declared=t['gmReady'] if owner=='gm' else all(c['id'] in t['plans'] for c in room['characters'] if c['id'] in t['party'] and c['kind']=='pc' and c['owner']==owner),
@@ -227,11 +230,19 @@ class Game:
         if room.get('journeyRisk') and action not in ('travelRisk','chat','roll','freePush','freeAccept'):raise ValueError('Сначала завершите проверку путешествия: примите результат или пойдите на риск.')
         if room.get('combat',{}).get('pendingRisk') and action in ('character','actor','assignCharacter','runtime','deleteCharacter','combatCreate','combatManual','combatClose'):raise ValueError('Сначала завершите текущий боевой бросок.')
         t=journey_state(room)
+        repairing={i['repair']['character'] for i in room.get('items',[]) if i.get('repair',{}).get('status')=='rolled'}
+        target=data.get('id') if isinstance(data.get('id'),str) else None
+        mutation=action in ('character','actor','assignCharacter','runtime','deleteCharacter','characterProgression') and target in repairing
+        choices=data.get('units') if isinstance(data.get('units'),list) else []
+        battle=action=='combatCreate' and any(isinstance(u,dict) and isinstance(u.get('id'),str) and u['id'] in repairing for u in choices)
+        party={cid for cid in data.get('party',[]) if isinstance(cid,str)} if isinstance(data.get('party'),list) else set()
+        travel=isinstance(action,str) and action.startswith('travel') and (repairing.intersection(t['party']) or target in repairing or repairing.intersection(party))
+        if mutation or battle or travel:raise ValueError('Сначала завершите бросок ремонта: примите результат или пойдите на риск.')
         if t['phase']=='resolving' and action in ('character','actor','deleteCharacter','assignCharacter','runtime') and data.get('id') in t['party']:
             raise ValueError('Персонаж выполняет занятие. Завершите текущую четверть перед изменением листа или владельца.')
         if action in ('paint','mapLocation','mapArtwork','worldLayout','event','deleteCharacter','assignCharacter','deleteToken','combatCreate','combatClose','actor','combatManual') and not gm:
             raise PermissionError('Действие доступно только Мастеру.')
-        if action in ('inventoryOpen','itemCreate','itemEdit','itemTransfer','itemWear','equipment','inventoryCoins','inventoryResource','itemAppearance','itemSplit','itemConsume','itemMerge'):
+        if action in ('inventoryOpen','itemCreate','itemEdit','itemTransfer','itemWear','equipment','inventoryCoins','inventoryResource','itemAppearance','itemSplit','itemConsume','itemMerge','inventoryRepair'):
             inventory_action(room,s,data)
             if action!='inventoryOpen':room['journey']['gmReady']=False
         elif action in ('opposedCreate','opposedRoll','opposedPush','opposedAccept','opposedCancel'):
@@ -706,7 +717,8 @@ def make_handler(game,public_test=False,max_rooms=50,limits=None):
             except (ValueError,TypeError,KeyError) as e: self.respond(400,{'error':str(e)})
 
         def do_GET(self):
-            if self.limited('read'):return
+            # Asset requests from eleven clients must not exhaust campaign polling.
+            if self.limited('read' if urlparse(self.path).path.startswith('/api/') else 'static'):return
             if urlparse(self.path).path=='/api/account':
                 try:
                     with LOCK:result=game.accounts.dashboard(self.account_context())

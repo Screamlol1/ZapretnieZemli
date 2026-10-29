@@ -19,5 +19,7 @@ import './location-maps.test.mjs';
 import './location-themes.test.mjs';
 import './inventory-board.test.mjs';
 import './settlement-population.test.mjs';
+import './session-flow.test.mjs';
+import './inventory-repair.test.mjs';
 
 await import('./combat-risk.test.mjs');
