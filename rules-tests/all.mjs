@@ -17,5 +17,6 @@ import './progression.test.mjs';
 import './dice.test.mjs';
 import './location-maps.test.mjs';
 import './location-themes.test.mjs';
+import './inventory-board.test.mjs';
 
 await import('./combat-risk.test.mjs');

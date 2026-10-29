@@ -1,0 +1,9 @@
+# Иллюстрации интерактивного инвентаря
+
+`inventory-atlas-v1.png`: оригинальный прозрачный атлас 1536×1024, 24 предмета. Создан встроенным ImageGen 29 октября 2026. Иллюстрации не извлечены из книг. Файл сохранён в проект без преобразования; индивидуальные области отображения заданы в `../inventory-art.js`, чтобы посох и факел не обрезались границами регулярной сетки. Размер картинки на карточке не определяет вес или размеры предмета в мире.
+
+Использованный запрос:
+
+```
+Use case: stylized-concept. Asset: inventory item sprite atlas for dark medieval fantasy tabletop web game. TRANSPARENT PNG 1536x1024, EXACTLY SIX columns and FOUR rows of independent objects, 24 cells each 256x256. Each object fully contained in its own cell, centered with at least 24 pixels transparent empty padding. No text, numbers, borders, background, panels, scenic bases or people. Muted warm ochre, iron grey, worn brown leather, fine dark ink contours and hand-painted realistic material detail; consistent soft upper left light and overhead three-quarter view. Readable at 64px. Row 1 left to right: iron arming sword; sheathed dagger; iron battle axe; iron flanged mace; wooden spear with iron tip; curved wooden hunting bow. Row 2: wooden crossbow; gnarled wizard staff; round wooden iron-rim shield; open iron helmet; folded chainmail hauberk; leather cuirass. Row 3: leather backpack; coil of rope; lit wooden torch; travel rations bread cheese dried meat; leather water skin; leather quiver with arrows. Row 4: small pile of copper silver gold coins; polished ruby artifact pendant; rolled parchment scroll; green glass potion bottle; hammer and tongs toolkit; rolled bedroll blanket. All 24 cells must be separated by transparent margins. Individual item silhouettes never touch adjacent cells. Whole objects uncropped.
+```

@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {itemArt,itemCrops,itemImage,itemPicture} from '../public/inventory-art.js';
+import {inventoryBag,equipmentTiles,resourceTiles} from '../public/inventory-board.js';
+assert.equal(itemArt.length,24);assert.equal(itemCrops.length,24);
+for(const [x,y,w,h] of itemCrops)assert.ok(x>=0&&y>=0&&w>0&&h>0&&x+w<=1536&&y+h<=1024);
+assert.equal(itemImage({combatProfile:'crossbow'}),'crossbow');assert.equal(itemImage({name:'Верёвка'}),'rope');assert.equal(itemImage({kind:'armor',armorSlot:'helmet'}),'helmet');assert.equal(itemImage({art:'potion',combatProfile:'sword'}),'potion');assert.ok(itemPicture({art:'<script>'}).includes('inventory-atlas'));
+const sword={id:'s',name:'<Клинок>',kind:'weapon',combatProfile:'sword',grip:'2Р',quantity:1,weight:2,wear:1,artifactDie:'D8'},rope={id:'r',name:'Верёвка',quantity:3,weight:.5,kind:'gear'},c={id:'hero',equipment:{weapon:'s'},runtime:{resources:{food:8,water:6,arrows:0,torches:12},consumed:{food:1}},load:{total:6.5,capacity:6,items:3.5,supplies:3,coins:0,overloaded:true}},s={me:{role:'player'},journey:{phase:'planning',party:[],day:1}};
+const bag=inventoryBag(c,[sword,rope],s,true);assert.ok(!bag.includes('&lt;Клинок&gt;'));assert.ok(bag.includes('×3'));assert.ok(bag.includes('Перегруз на 0.5'));
+const tiles=equipmentTiles(c,[sword,rope],false);assert.ok(tiles.includes('Занята двуручным оружием'));assert.ok(tiles.includes('&lt;Клинок&gt;'));
+const resources=resourceTiles(c,s);assert.ok(resources.includes('Порция использована сегодня'));assert.ok(!resources.includes('data-resource-set'));assert.ok(resourceTiles(c,{...s,me:{role:'gm'}}).includes('data-resource-set'));
+console.log('Interactive inventory: icons, four slots, carried stacks, weight, daily rations and player controls passed.');

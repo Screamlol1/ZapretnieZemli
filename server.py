@@ -231,7 +231,7 @@ class Game:
             raise ValueError('Персонаж выполняет занятие. Завершите текущую четверть перед изменением листа или владельца.')
         if action in ('paint','mapLocation','mapArtwork','worldLayout','event','deleteCharacter','assignCharacter','deleteToken','combatCreate','combatClose','actor','combatManual') and not gm:
             raise PermissionError('Действие доступно только Мастеру.')
-        if action in ('inventoryOpen','itemCreate','itemEdit','itemTransfer','itemWear','equipment','inventoryCoins'):
+        if action in ('inventoryOpen','itemCreate','itemEdit','itemTransfer','itemWear','equipment','inventoryCoins','inventoryResource','itemAppearance','itemSplit','itemConsume','itemMerge'):
             inventory_action(room,s,data)
             if action!='inventoryOpen':room['journey']['gmReady']=False
         elif action in ('opposedCreate','opposedRoll','opposedPush','opposedAccept','opposedCancel'):

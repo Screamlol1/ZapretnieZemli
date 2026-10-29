@@ -1,3 +1,4 @@
+ITEM_ART=('sword','dagger','axe','mace','spear','bow','crossbow','staff','shield','helmet','chainmail','leather','pack','rope','torch','food','water','arrows','coins','gem','scroll','potion','tools','bedroll')
 """Campaign property is separate from the immutable creation equipment budget."""
 import json
 import math
@@ -57,7 +58,9 @@ def validate(raw):
     if armor_slot not in ('armor','helmet'):raise ValueError('Выберите доспех или шлем.')
     die=text(raw.get('artifactDie',''),40).upper()
     if die not in ('','D8','D10','D12'):raise ValueError('Артефактный кубик: D8, D10 или D12.')
-    return dict(name=name,kind=kind,quantity=quantity,weight=number(raw.get('weight',0)),
+    art=raw.get('art','')
+    if not isinstance(art,str) or art not in ('',*ITEM_ART):raise ValueError('Выберите картинку предмета из набора.')
+    return dict(art=art,name=name,kind=kind,quantity=quantity,weight=number(raw.get('weight',0)),
         description=text(raw.get('description','')),effect=text(raw.get('effect','')),gmNote=text(raw.get('gmNote','')),
         bonus=number(raw.get('bonus',0),20,True),damage=number(raw.get('damage',0),20,True),armor=number(raw.get('armor',0),30,True),
         grip=text(raw.get('grip',''),40),range=text(raw.get('range',''),60),artifactDie=die,combatProfile=profile,armorSlot=armor_slot)
@@ -90,6 +93,9 @@ def public_items(room,s):
 
 def apply(room,s,data):
     action=data['action'];gm=s['role']=='gm'
+    if action in ('inventoryResource','itemAppearance','itemSplit','itemConsume','itemMerge'):
+        from inventory_actions import apply as extra
+        return extra(room,s,data)
     if action=='inventoryOpen':
         location=destination(room,dict(kind='character',id=data.get('character')),s);editable(room,location,s);ensure(room,location['id']);return
     if action in ('equipment','inventoryCoins'):
