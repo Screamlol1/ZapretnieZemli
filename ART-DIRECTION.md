@@ -1,0 +1,22 @@
+# Художественное направление и промпты
+
+Использован встроенный ImageGen, режим редактирования по стилистическим образцам. Сохранены исходные версии атласов; новые файлы имеют суффикс v2.
+
+Общее: подробный пиксельный стиль тёмного средневекового фэнтези, приглушённые земляные цвета, освещение сверху слева, тактический ракурс в три четверти, жёсткие края и единый масштаб. Никаких надписей, линий сетки или фона. Четыре равных столбца и четыре строки с прозрачностью. Человек и эльф примерно шесть голов в высоту, дварф и полурослик ниже; взрослые пропорции без чрезмерно больших голов. Персонажи целиком находятся в своей клетке, ступни привязаны к общей нижней линии. Между позами сохраняется личность и одежда.
+
+Промпт 1: по первоначальному игровому атласу создать новые модели без оружия: стройный человек, широкий человек, дварф и эльф. Строки: idle, walking step, melee strike pose, casting pose. Практичная туника, пояс, штаны, ботинки и небольшая накидка; различимые материалы для перекраски: охра одежды, бирюза накидки, кожа и тёмные волосы. Сохранить анатомию, пропорции и перспективу во всех позах.
+
+Промпт 2: используя первый новый атлас как образец, сохранить его точный стиль, свет, перспективу, одежду и позы; заменить четыре народа на полурослика, полуволка, орка и гоблина. Полуволку — волчью голову, уши, морду, шерсть и пальцеходящие лапы; орку — сильный силуэт и небольшие нижние клыки; гоблину — тонкое небольшое тело и крупные острые уши; полурослику — компактные взрослые пропорции. Не ограничиваться перекрашенными людьми.
+
+Промпт 3: по первоначальному атласу создать собственных чудовищ с тем же пиксельным стилем: гигантский паук с согласованной анатомией восьми ног, бескрылая рогатая рептилия, массивный лохматый зверь и высокое рогатое существо с длинными конечностями. Строки: idle, locomotion, attack, magical/howling ability. Сохранить личность, палитру и размеры между позами. Без декораций, крови, надписей и встроенных магических эффектов.
+
+Все три результата осмотрены визуально перед подключением. Текущие ограничения: фиксированные причёски, общая эльфийская основа для полуэльфа, по одной позе каждого состояния вместо полного цикла, четыре основы чудовищ и отсутствие отдельного слоя оружия.
+
+
+## Атлас локаций · 29 октября 2026
+
+Создан встроенным `image_gen`, затем выполнена правка тем же инструментом. Итог: `public/assets/location-atlas-v1.png`, 1536×1024, RGBA. Альфа-канал проверен; исходник сохранён без растровой обработки. Наклон иллюстраций допускается как картографическая виньетка; размеры задаются геометрией плана. Кости используют ту же приглушённую палитру, фактуру и обводки, сохраняя цвет источника.
+
+Исходный промпт: one production game sprite atlas, 1536×1024, 6 columns and 4 rows of equally sized transparent cells. No grid lines, captions, letters or numbers. Every isolated sprite centered in its cell with transparent padding. Consistent top-down bird's-eye map viewpoint. Original low-fantasy medieval northern European tabletop adventure artwork, pen-and-ink fine hatching plus muted watercolor; umber roofs, moss green, gray stone, parchment beige cloth, weathered materials and restrained outlines. Individual roof tiles, thatch, planks, masonry, chimneys, cracks and clutter. Cell order: thatched cottage; shingle cottage; L-shaped tiled cottage; barn; tavern; smithy; chapel; manor; keep; circular tower; gatehouse; ruined house; canvas tent; pavilion; crates/barrels/sacks; well; market stalls; campfire; wooden bridge; broadleaf tree; evergreen tree; boulders; roofless stone room; cavern chamber. No connecting scenery.
+
+Промпт правки: “Edit this game atlas. Preserve the 24 subjects, hand-painted ink/watercolor details, colors and exact order in 6 columns x 4 rows. CRITICAL change: REMOVE ALL the brown/green/gray backdrop completely; output actual transparent alpha outside every individual object, no painted background, no haze, no glow or shadows behind objects, no checkerboard pixels. Also shrink and center each individual sprite within its precise equal grid cell so every object INCLUDING ground rubble is completely contained with transparent padding at least 24 pixels on ALL sides of its 256x256 cell. Output 1536x1024, exactly six equal columns four equal rows, each cell one independent asset. Do not cut off building roofs, chapel, tents, rocks. No labels, frames or gridlines. Preserve all objects as beautiful detailed illustrated map assets.”

@@ -1,0 +1,37 @@
+import {controllerIdentity,currentMasterIdentity} from './player-identity.js';
+const quarters=['Утро','День','Вечер','Ночь'];
+const mine=(s,c)=>s.me.role==='gm'||c?.kind==='pc'&&c.owner===s.me.owner;
+const gmIdentity=currentMasterIdentity;
+export function sessionFlow(s){
+ const b=s.combat,t=s.journey||{},gm=s.me.role==='gm',people=s.characters||[],character=id=>people.find(c=>c.id===id),base={view:'map',action:'view',button:'К действиям',stage:0,stages:[],waiting:[],yourTurn:false};
+ const controlled=(id,fallback)=>{const c=character(id)||b?.units?.find(u=>u.id===id);return {identity:c?controllerIdentity(s,c):gmIdentity(s),yourTurn:c?mine(s,c):gm,actorName:c?.name||fallback||'Мастер',actor:id};};
+ if(s.treatment){const p=s.treatment;return {...base,...controlled(p.waiting?null:p.healer),view:'crew',action:'health',eyebrow:'Помощь союзнику',title:p.waiting?'Закрытая проверка лечения':'Завершите проверку лечения',detail:p.waiting?'Ожидается решение Мастера.':'Целитель принимает результат или идёт на риск; помощь применится после решения.',button:'К лечению',stage:1,stages:['Выбор помощи','Проверка','Последствия']};}
+ if(s.sessionRecap?.status==='draft'){const r=s.sessionRecap,own=(r.characters||[]).filter(c=>c.owner===s.me.owner),missing=own.some(c=>!r.answers?.[c.id]);return {...base,view:'journal',action:'recap',eyebrow:`Итоги встречи ${r.session}`,title:gm?'Проверьте итоги и опыт':missing?'Заполните итоги героя':'Ожидаем итоги Мастера',detail:'Ответы игроков, важные события, опыт и контрольное сохранение.',identity:gm||!missing?gmIdentity(s):undefined,yourTurn:gm||missing,button:'Открыть итоги',stage:gm?1:0,stages:['Ответы игроков','Решение Мастера','Сохранение и развитие']};}
+ if(b&&['setup','combat'].includes(b.phase)){
+  const active=b.units.find(u=>u.id===b.order?.[b.turn]);
+  const combat={...base,view:'combat',button:'Открыть бой',eyebrow:b.phase==='setup'?'Подготовка боя':`Бой · раунд ${b.round}`,stages:['Инициатива','Действия','Завершение хода']};
+  if(b.initiativeDraw)return {...combat,...controlled(b.initiativeDraw.actor),title:'Выбор инициативы',detail:'Владелец бойца выбирает одну из предложенных карт. Остальные ожидают.',stage:0};
+  if(b.phase==='setup')return {...combat,identity:gmIdentity(s),yourTurn:gm,title:'Мастер готовит бой',detail:'Расстановка бойцов, экипировка и внезапность. Затем — карты инициативы.'};
+  if(b.pendingRisk){const p=b.pendingRisk;return {...combat,...controlled(p.waiting?null:p.actor),title:p.waiting?'Закрытая проверка Мастера':p.kind==='power'?'Сила воли после попадания':'Решение по броску',detail:p.waiting?'Бой продолжится после закрытого решения.':p.kind==='power'?'Выберите усиление достоинством или продолжите без расхода силы воли.':'Примите результат или пойдите на риск. Ход ждёт решения по костям.',stage:1,action:p.waiting&&!gm?'view':'dice',button:p.waiting&&!gm?'Открыть бой':'Открыть бросок'};}
+  if(b.pendingMishap)return {...combat,identity:gmIdentity(s),yourTurn:gm,title:'Магическая неудача',detail:'Мастер разрешает последствия перед продолжением боя.',stage:1};
+  if(active?.pendingMove)return {...combat,...controlled(active.id),title:'Последствие перегруза',detail:'Выберите: остаться на месте или продолжить с потерей Ловкости.',stage:1};
+  const spent=active&&!active.fast&&!active.slow;
+  return {...combat,...controlled(active?.id),title:active?`Ход: ${active.name}`:'Ожидаем бойца',detail:spent?'Обычные действия потрачены. Проверьте доступные способности и завершите ход.':`Быстрое действие: ${active?.fast||0} · медленное: ${active?.slow||0}. Защиту можно выбрать и вне своего хода.`,stage:spent?2:1};
+ }
+ const journey={...base,view:'travel',eyebrow:`Путешествие · день ${t.day||1} · ${quarters[t.quarter||0]}`,stages:['Заявки','Проверки и события','Подтверждения']};
+ const party=(t.party||[]).map(character).filter(Boolean),pending=t.pendingCount??t.pending?.length??0;
+ if(s.journeyRisk){const p=s.journeyRisk;return {...journey,...controlled(p.waiting?null:p.actor),title:p.waiting?'Закрытая проверка Мастера':'Проверка путешествия',detail:p.waiting?'Ожидается решение Мастера.':'Владелец героя принимает результат или идёт на риск. Затем выполняется следующая проверка.',stage:1,action:p.waiting&&!gm?'view':'dice',button:p.waiting&&!gm?'К путешествию':'Открыть бросок'};}
+ const repair=(s.items||[]).filter(i=>i.repair).sort((a,b)=>['rolled','approved','requested'].indexOf(a.repair.status)-['rolled','approved','requested'].indexOf(b.repair.status))[0];
+ if(repair){const p=repair.repair,stage=p.status==='requested'?0:p.status==='approved'?1:2,master=stage===0||p.waiting;return {...base,...controlled(p.character),...(master?{identity:gmIdentity(s),yourTurn:gm}:{}),view:'inventory',eyebrow:'Ремонт снаряжения',stage,stages:['Условия Мастера','Бросок Ремесла','Риск и результат'],title:stage===0?'Мастер подтверждает ремонт':stage===1?'Владелец бросает Ремесло':p.waiting?'Закрытая проверка ремонта':'Завершите ремонт',detail:stage===0?'Нужны время, инструменты и необходимые достоинства.':stage===1?'Условия согласованы. Откройте инвентарь героя для проверки.':p.waiting?'Ожидается решение Мастера.':'Примите результат или пойдите на риск. Последствия сохранятся в инвентаре.',button:'К ремонту'};}
+ if(!party.length)return {...journey,title:'Подготовка приключения',detail:gm?'Создайте героев и включите их в отряд на карте.':'Создайте героя. Мастер включит его в отряд.',view:people.some(c=>mine(s,c))&&gm?'travel':'crew',button:gm?'Подготовить отряд':'К персонажам',identity:gmIdentity(s),yourTurn:gm};
+ if(pending)return {...journey,title:'Мастер разрешает события',detail:`Незавершённых событий: ${pending}. После решения откроется подтверждение результатов.`,stage:1,identity:gmIdentity(s),yourTurn:gm,button:gm?'К событиям':'К путешествию',action:gm?'events':'view'};
+ const participants=t.cycleParticipants||[],who=gm?'gm':s.me.owner;
+ if(t.phase==='resolving'){
+  const waiting=participants.filter(p=>!p.complete),delegated=gm&&waiting.some(p=>s.tableTools?.control?.[p.owner]),own=waiting.some(p=>p.owner===who);
+  if(delegated&&!own)return {...journey,title:'Проверьте результаты отсутствующего игрока',detail:'Вы приняли временное управление. Подтверждение выполняется отдельно после проверки результатов.',stage:2,waiting:waiting.map(p=>p.owner),identity:gmIdentity(s),yourTurn:true,action:'control',button:'К временному управлению'};
+  return {...journey,title:own?'Подтвердите свои результаты':'Ожидаем подтверждений',detail:waiting.length?'Ожидаем: '+waiting.map(p=>p.name).join(', ')+'.':'Все готовы. Четверть сменится автоматически.',stage:2,waiting:waiting.map(p=>p.owner),yourTurn:own,button:own?'Проверить и подтвердить':'Посмотреть результаты'};
+ }
+ const missing=party.filter(c=>!t.plans?.[c.id]),own=missing.filter(c=>mine(s,c));
+ if(missing.length)return {...journey,title:own.length?'Заявите действия на четверть':'Ожидаем заявки отряда',detail:'Без заявки: '+missing.map(c=>c.name).join(', ')+'. Заявки подаются одновременно.',waiting:[...new Set(missing.map(c=>controllerIdentity(s,c).role==='gm'?'gm':c.owner))],actor:own[0]?.id,yourTurn:own.length>0,button:own.length?'Заявить занятие':'К путешествию'};
+ return {...journey,title:'Заявки готовы · решение Мастера',detail:t.blocker||'Мастер проверяет маршрут и условия, затем запускает проверки.',identity:gmIdentity(s),waiting:['gm'],yourTurn:gm,button:gm?'Проверить условия':'Посмотреть заявки'};
+}

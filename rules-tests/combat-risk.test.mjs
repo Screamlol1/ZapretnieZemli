@@ -1,0 +1,37 @@
+import assert from 'node:assert/strict';
+import {newBattle,attack,validateBattle,endTurn} from '../public/tools/battle-rules.js';
+import {riskCommand} from '../combat-risk.mjs';
+import {initiative} from '../initiative.mjs';
+import {diceModels} from '../public/dice-shapes.js';
+for(const [n,m] of Object.entries(diceModels)){assert.equal(m.faces.length,Number(n));assert.ok(m.faces.every(f=>f.ids.length===({8:3,10:4,12:5})[n]));}
+function battle(){const b=newBattle();b.units=b.units.slice(0,2);b.units.forEach((u,i)=>Object.assign(u,{team:i?'B':'A',q:3+i,r:3,defense:'none',armor:0,maxArmor:0,kind:'pc'}));b.phase='combat';b.round=1;b.order=b.units.map(u=>u.id);return b;}
+const execute=(b,c,d)=>{b.diceEvents=[];b.commandLog=[];attack(b,c.target,'slash',{},d);};
+let b=battle(),draws=0;
+const command={action:'slash',target:b.units[1].id,interactive:true};
+let pending=riskCommand(b,command,execute,()=>{draws++;return 2;});
+assert.ok(pending.pendingRisk);assert.equal(pending.units[1].str,b.units[1].str);assert.equal(pending.units[0].slow,0);
+let result=riskCommand(pending,{action:'risk',roll:pending.pendingRisk.id,push:true},execute,()=>1);
+assert.ok(!result.pendingRisk);assert.equal(result.units[0].str,0);assert.equal(result.units[0].gear,0);assert.equal(result.units[0].wp,Math.min(10,b.units[0].wp+b.units[0].str));validateBattle(result);
+assert.throws(()=>riskCommand(result,{action:'risk',roll:'old',push:true},execute));
+result=riskCommand(pending,{action:'risk',roll:pending.pendingRisk.id,push:false},execute,()=>{throw Error('Accepted failure draws no more dice');});
+assert.equal(result.units[0].str,b.units[0].str);assert.equal(result.units[0].slow,0);
+b=battle();b.units[0].path='blade';b.units[0].pathRank=3;b.units[0].wp=3;
+pending=riskCommand(b,{...command,target:b.units[1].id},execute,()=>6);
+assert.equal(pending.pendingRisk.kind,'power');assert.equal(pending.units[1].str,b.units[1].str);
+result=riskCommand(pending,{action:'risk',roll:pending.pendingRisk.id,push:false,power:{damage:2,ignoreArmor:true}},execute,()=>{throw Error('Ignored armor cannot roll');});
+assert.equal(result.units[0].wp,0);assert.equal(result.units[1].str,0);
+assert.throws(()=>riskCommand(pending,{action:'risk',roll:pending.pendingRisk.id,push:false,power:{damage:3,ignoreArmor:true}},execute));
+b=battle();b.phase='setup';b.order=[];b.round=0;b.units[0].talents={lightning:3};
+initiative(b,{action:'start'},()=>1);assert.equal(b.initiativeDraw.offered.length,4);const card=b.initiativeDraw.offered.at(-1);
+initiative(b,{action:'initiativeChoose',unit:b.initiativeDraw.actor,card},()=>1);
+assert.equal(b.units[0].initiative,card);assert.equal(new Set(b.units.map(u=>u.initiative)).size,2);assert.equal(b.phase,'combat');
+const order=[...b.order];endTurn(b);endTurn(b);assert.deepEqual(b.order,order);
+b=battle();b.diceEvents=[];b.commandLog=[];b.units[0].talents={sword:3};b.units[1].talents={defender:1};b.units[1].defense='weapon';
+attack(b,b.units[1].id,'slash',{},()=>2);
+let roll=b.diceEvents.find(e=>e.label==='Атака');assert.equal(roll.groups.find(g=>g.kind==='skill').values.length,b.units[0].melee+1);assert.equal(roll.groups.filter(g=>g.kind==='artifact'&&g.sides===8).length,1);
+assert.equal(b.units[1].fast,1,'first parry from Defender is free');b.units[0].slow=1;attack(b,b.units[1].id,'slash',{},()=>2);assert.equal(b.units[1].fast,0,'second rank-1 parry spends an action');
+b=battle();b.units[0].talents={brawler:2};attack(b,b.units[1].id,'punch',{},()=>2);assert.equal(b.units[0].fast,0);assert.equal(b.units[0].slow,1,'headbutt uses fast action');
+b=battle();Object.assign(b.units[0],{fast:0,slow:0,path:'blade',pathRank:2,wp:1});attack(b,b.units[1].id,'slash',{extraAttack:true},()=>2);assert.equal(b.units[0].wp,0);assert.equal(b.units[0].slow,0);assert.throws(()=>attack(b,b.units[1].id,'slash',{extraAttack:true},()=>2));
+b=battle();b.turn=0;b.roundStarted=false;b.units.forEach((u,i)=>{u.team='A';u.initiative=i+1;});
+initiative(b,{action:'initiativeOffer',unit:b.units[0].id,target:b.units[1].id},()=>1);assert.throws(()=>initiative(b,{action:'initiativeAccept',unit:b.units[0].id},()=>1));initiative(b,{action:'initiativeAccept',unit:b.units[1].id},()=>1);assert.equal(b.order[0],b.units[1].id);b.roundStarted=true;assert.throws(()=>initiative(b,{action:'initiativeOffer',unit:b.units[0].id,target:b.units[1].id},()=>1));
+console.log('Risk: deferred damage, deterministic continuation, once-only push, WP before armor, distinct solid dice and initiative choice passed.');
