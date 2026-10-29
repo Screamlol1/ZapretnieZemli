@@ -1,4 +1,3 @@
-ITEM_ART=('sword','dagger','axe','mace','spear','bow','crossbow','staff','shield','helmet','chainmail','leather','pack','rope','torch','food','water','arrows','coins','gem','scroll','potion','tools','bedroll')
 """Campaign property is separate from the immutable creation equipment budget."""
 import json
 import math
@@ -6,6 +5,9 @@ import secrets
 import subprocess
 from pathlib import Path
 from equipment_rules import prepare, slot, clear_slots, WEAPONS
+
+# Share the visual identifiers with the browser without introducing rule data.
+ITEM_ART=tuple(item['id'] for item in json.loads((Path(__file__).parent/'public'/'inventory-art-data.json').read_text(encoding='utf-8'))['items'])
 
 def text(value,maximum=2000):
     if not isinstance(value,str) or len(value)>maximum:raise ValueError('Слишком длинное или некорректное текстовое поле.')
@@ -134,7 +136,7 @@ def apply(room,s,data):
     if data.get('version')!=item['version']:raise ValueError('Предмет уже изменён. Обновите инвентарь и повторите действие.')
     if action=='itemEdit':
         if not gm:raise PermissionError('Свойства предмета редактирует Мастер.')
-        clear_slots(room,item['id']);item.update(validate(data.get('item')));item.pop('catalogId',None)
+        clear_slots(room,item['id']);item.update(validate(data.get('item')))
     elif action=='itemWear':
         if not gm:raise PermissionError('Ремонт и ручной износ подтверждает Мастер.')
         note=text(data.get('note',''),500)

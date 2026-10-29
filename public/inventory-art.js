@@ -1,16 +1,81 @@
-export const itemArt=[['sword','Меч'],['dagger','Кинжал'],['axe','Топор'],['mace','Булава'],['spear','Копьё'],['bow','Лук'],['crossbow','Арбалет'],['staff','Посох'],['shield','Щит'],['helmet','Шлем'],['chainmail','Кольчуга'],['leather','Кожаный доспех'],['pack','Сумка'],['rope','Верёвка'],['torch','Факел'],['food','Провизия'],['water','Вода'],['arrows','Стрелы'],['coins','Монеты'],['gem','Артефакт'],['scroll','Свиток'],['potion','Зелье'],['tools','Инструменты'],['bedroll','Спальный мешок']];
+import artData from './inventory-art-data.json' with {type:'json'};
+
+// One manifest supplies browser images and the server's art whitelist.
+// Choosing an illustration never changes the item's rules or equipment profile.
+export const itemArtData=artData;
+export const itemArt=artData.items.map(({id,label})=>[id,label]);
+export const itemCrops=artData.items.map(({crop})=>crop);
+export const catalogArt=Object.fromEntries(Object.entries(artData.catalog).map(([id,item])=>[id,item.art]));
+const byArt=new Map(artData.items.map(item=>[item.id,item]));
+let nextClipId=0;
+const normalize=value=>String(value??'').toLowerCase().replace(/ё/g,'е').replace(/[^\p{L}\p{N}]+/gu,' ').trim();
+const namedCatalog=new Map(Object.values(artData.catalog).map(item=>[normalize(item.name),item.art]));
+const catalogPhrases=[...namedCatalog].sort(([a],[b])=>b.length-a.length);
 export const escapeItem=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-export const itemCrops=[[16,17,230,225],[307,52,184,188],[538,8,226,236],[798,20,211,219],[1031,19,239,225],[1299,16,223,226],[12,287,239,197],[282,253,228,266],[524,263,224,227],[791,269,210,231],[1032,283,238,203],[1301,263,215,242],[13,518,237,230],[280,541,218,202],[541,491,196,266],[777,552,234,190],[1052,518,211,240],[1301,514,216,244],[8,812,246,176],[308,764,171,237],[524,804,242,173],[812,767,167,234],[1028,779,235,234],[1285,802,241,177]];
+
+// Specific phrases precede generic families. Unicode letter boundaries prevent
+// «мел» from matching «мельница», and «карта» from matching «картина».
+const hints=[
+ ['(?:метательн\\p{L}*|throwing) (?:нож\\p{L}*|кинжал\\p{L}*|knife)','throwingknife'],
+ ['(?:столов\\p{L}*|dining|table) (?:нож\\p{L}*|knife)','foodknife'],
+ ['(?:метательн\\p{L}*|throwing) (?:копь\\p{L}*|spear)|javelin','throwingspear'],
+ ['(?:двуручн\\p{L}*|two handed|great) (?:меч\\p{L}*|sword)|greatsword','greatsword'],
+ ['(?:коротк\\p{L}*|short) (?:меч\\p{L}*|sword)|shortsword','shortsword'],
+ ['(?:длинн\\p{L}*|long) (?:меч\\p{L}*|sword)|longsword','longsword'],
+ ['(?:коротк\\p{L}*|short) (?:копь\\p{L}*|spear)','shortspear'],
+ ['(?:длинн\\p{L}*|long) (?:лук\\p{L}*|bow)|longbow','longbow'],
+ ['(?:тяжел\\p{L}*|heavy) (?:арбалет\\p{L}*|crossbow)','heavycrossbow'],
+ ['(?:ручн\\p{L}*|метательн\\p{L}*|hand|throwing) (?:топор\\p{L}*|axe)|hatchet','handaxe'],
+ ['(?:мал\\p{L}*|small) (?:щит\\p{L}*|shield)|buckler','smallshield'],
+ ['(?:больш\\p{L}*|large) (?:щит\\p{L}*|shield)','largeshield'],
+ ['(?:закрыт\\p{L}*|closed) (?:шлем\\p{L}*|helm\\p{L}*)','closedhelm'],
+ ['(?:укреплен\\p{L}*|studded) (?:кожан\\p{L}*|leather)','leather'],
+ ['кожан\\p{L}* (?:доспех\\p{L}*|брон\\p{L}*)|leather armor','leatherarmor'],
+ ['(?:магическ\\p{L}*|чародейск\\p{L}*|волшебн\\p{L}*|magic|wizard) (?:посох\\p{L}*|staff)','staff'],
+ ['(?:добротн\\p{L}*|tailored) (?:плащ\\p{L}*|cloak)','tailoredcloak'],
+ ['(?:больш\\p{L}*|large) (?:палатк\\p{L}*|tent)','largetent'],
+ ['(?:спальн\\p{L}*|sleeping) (?:мешок|bag)|bedroll','bedroll'],
+ ['фальшион\\p{L}*|falchion','falchion'],['скимитар\\p{L}*|сабл\\p{L}*|scimitar|sabre','scimitar'],
+ ['моргенштерн\\p{L}*|morningstar|morning star','morningstar'],['кистен\\p{L}*|боев\\p{L}* цеп\\p{L}*|flail','flail'],
+ ['боев\\p{L}* молот\\p{L}*|warhammer|war hammer','warhammer'],['дубин\\p{L}*|палиц\\p{L}*|club','club'],
+ ['пращ\\p{L}*|sling','sling'],['алебард\\p{L}*|halberd','halberd'],['булав\\p{L}*|mace','plainmace'],
+ ['свиток|свитк\\p{L}*|книг\\p{L}*|scroll|book','scroll'],['зель\\p{L}*|эликсир\\p{L}*|potion','potion'],
+ ['подзорн\\p{L}* труб\\p{L}*|spyglass','spyglass'],['карт[аыуе]|map','map'],['мел|chalk','chalk'],
+ ['колчан\\p{L}*|quiver','quiver'],['яд|яда|яды|poison','poison'],
+ ['палатк\\p{L}*|tent','smalltent'],['плащ\\p{L}*|cloak','cloak'],['одеял\\p{L}*|blanket','blanket'],
+ ['мешок|мешк\\p{L}*|sack','sack'],['чернил\\p{L}*|ink','ink'],['пергамент\\p{L}*|parchment','parchment'],
+ ['огнив\\p{L}*|flint','flint'],['отмыч\\p{L}*|lockpick\\p{L}*','lockpicks'],['бинт\\p{L}*|bandage\\p{L}*','bandages'],
+ ['кинжал\\p{L}*|dagger','dagger'],['нож|ножа|ножи|knife','knife'],['меч\\p{L}*|sword','sword'],
+ ['топор\\p{L}*|секир\\p{L}*|axe','axe'],['копь\\p{L}*|spear','spear'],['арбалет\\p{L}*|crossbow','crossbow'],
+ ['лук|лука|bow','bow'],['посох\\p{L}*|staff|quarterstaff','quarterstaff'],['шлем\\p{L}*|helm\\p{L}*','helmet'],
+ ['щит\\p{L}*|shield','shield'],['кольчуг\\p{L}*|chainmail','chainmail'],['веревк\\p{L}*|rope','rope'],
+ ['факел\\p{L}*|torch','torch'],['стрел[аы]|arrows','arrows'],['вод[аыуе]|бурдюк\\p{L}*|water','water'],
+ ['ед[аы]|паек|пайк\\p{L}*|провизи\\p{L}*|рацион\\p{L}*|food|rations','food'],
+ ['монет\\p{L}*|кошел\\p{L}*|coin\\p{L}*','coins'],['инструмент\\p{L}*|молоток|клещи|tool\\p{L}*','tools']
+].map(([pattern,art])=>[new RegExp('(?:^|[^\\p{L}])(?:'+pattern+')(?=$|[^\\p{L}])','iu'),art]);
+
 export function itemImage(i={}){
- if(itemArt.some(([id])=>id===i.art))return i.art;
- const profile={sword:'sword',greatsword:'sword',dagger:'dagger',axe:'axe',mace:'mace',spear:'spear',halberd:'spear',bow:'bow',longbow:'bow',crossbow:'crossbow',staff:'staff'}[i.combatProfile];if(profile)return profile;
- if(i.kind==='shield')return 'shield';if(i.kind==='armor')return i.armorSlot==='helmet'?'helmet':/кож|leather/i.test(i.name)?'leather':'chainmail';
- const name=String(i.name||i.catalogId||'').toLowerCase();
- for(const [pattern,art] of [['кинжал|нож|dagger','dagger'],['меч|sword','sword'],['топор|секир|axe','axe'],['копь|алебард|spear','spear'],['арбал|crossbow','crossbow'],['лук|bow','bow'],['посох|staff','staff'],['шлем|helm','helmet'],['щит|shield','shield'],['верёв|верев|rope','rope'],['факел|torch','torch'],['стрел|колчан|arrows','arrows'],['вода|бурдюк|water','water'],['ед[аы]|паёк|паек|прови|рацион|food','food'],['монет|кошел|coin','coins'],['зель|эликс|potion','potion'],['свит|книг|scroll','scroll'],['инструм|молот|клещ|tool','tools'],['одеял|спаль|bedroll','bedroll']])if(new RegExp(pattern).test(name))return art;
+ if(byArt.has(i.art))return i.art;
+ const catalogId=i.catalogId||i.id;
+ if(Object.hasOwn(catalogArt,catalogId))return catalogArt[catalogId];
+ const name=normalize(i.name);
+ if(namedCatalog.has(name))return namedCatalog.get(name);
+ // This also handles a canonical catalog object or an English catalog ID name.
+ if(Object.hasOwn(catalogArt,name.replaceAll(' ','')))return catalogArt[name.replaceAll(' ','')];
+ const phrase=catalogPhrases.find(([label])=>(' '+name+' ').includes(' '+label+' '));
+ if(phrase&&phrase[0].includes(' '))return phrase[1];
+ for(const [pattern,art] of hints)if(pattern.test(name))return art;
+ if(phrase)return phrase[1];
+ const profile={sword:'sword',greatsword:'greatsword',dagger:'dagger',axe:'axe',mace:'plainmace',spear:'spear',halberd:'halberd',bow:'bow',longbow:'longbow',crossbow:'crossbow',staff:'quarterstaff'}[i.combatProfile];
+ if(profile)return profile;
+ if(i.kind==='shield')return 'shield';
+ if(i.kind==='armor')return i.armorSlot==='helmet'?'helmet':'chainmail';
  return i.kind==='artifact'?'gem':'pack';
 }
+
 export function itemPicture(item,extra=''){
- const art=typeof item==='string'?item:itemImage(item),index=Math.max(0,itemArt.findIndex(([id])=>id===art)),[x,y,w,h]=itemCrops[index];
- return `<svg class="item-picture ${extra}" viewBox="${x} ${y} ${w} ${h}" width="80" height="80" aria-hidden="true" focusable="false"><image href="/assets/inventory-atlas-v1.png" width="1536" height="1024"/></svg>`;
+ const art=typeof item==='string'?item:itemImage(item),entry=byArt.get(art)||byArt.get('pack'),atlas=artData.atlases[entry.atlas];
+ const clipId='inventory-art-clip-'+(++nextClipId);
+ return '<svg class="item-picture '+escapeItem(extra)+'" viewBox="'+entry.crop.join(' ')+'" width="80" height="80" aria-hidden="true" focusable="false">'+(entry.clip?'<defs><clipPath id="'+clipId+'" clipPathUnits="userSpaceOnUse"><path d="'+entry.clip+'"/></clipPath></defs>':'')+'<image href="'+atlas.src+'" width="'+atlas.width+'" height="'+atlas.height+'"'+(entry.clip?' clip-path="url(#'+clipId+')"':'')+'/></svg>';
 }
-export const artOptions=value=>'<option value="">Подобрать по предмету</option>'+itemArt.map(([id,label])=>`<option value="${id}" ${id===value?'selected':''}>${label}</option>`).join('');
+export const artOptions=value=>'<option value="">Подобрать по предмету</option>'+Object.entries(artData.groups).map(([group,label])=>'<optgroup label="'+escapeItem(label)+'">'+artData.items.filter(i=>i.group===group).map(i=>'<option value="'+i.id+'" '+(i.id===value?'selected':'')+'>'+escapeItem(i.label)+'</option>').join('')+'</optgroup>').join('');
