@@ -18,7 +18,7 @@ export function locationPaths(map,interactive=true){
    const stroke=(color,width,extra='')=>`<path d="${d}" fill="none" stroke="${color}" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round" ${extra}/>`;
    if(style==='wall')surfaces.push(stroke('#4c4a3c',w+2),stroke('#8d8a70',w+4,`stroke-dasharray="${unit} ${unit*2}" style="stroke-linecap:butt"`),stroke('url(#location-stone)',w));
    else if(style==='palisade')surfaces.push(stroke('#4e3724',w+1.5),stroke('#9b7950',w+3,`stroke-dasharray="${.3*unit} ${.25*unit}" style="stroke-linecap:butt"`),stroke('#83603d',w*.65));
-   else surfaces.push(stroke(style==='passage'?'#55584b':'#98835d',w+2),stroke(`url(#${style==='passage'?'location-stone':'location-earth'})`,w));
+   else surfaces.push(stroke(style==='passage'?'#55584b':'#98835d',w+2),stroke(`url(#${style==='passage'?'location-stone':map.roadSurface==='stone'?'location-stone':map.roadSurface==='planks'?'location-planks':'location-earth'})`,w));
   }
   if(surfaces.length)layers.push(`<g data-location-surface="${secret?'private':'public'}" opacity="${secret?.5:1}" pointer-events="none">${surfaces.join('')}</g>`);
  }

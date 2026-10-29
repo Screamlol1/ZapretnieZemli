@@ -5,10 +5,12 @@ import math
 import random
 import secrets
 from campaign_rules import coordinate
+from location_themes import ART_IDS as CULTURE_ART, style_settings, apply_style, size_generated
 from location_editor import edit as edit_plan, snapshot, remember, undo, feature_bounds
 
 KINDS = {'settlement', 'camp', 'fortress', 'ruins', 'dungeon', 'cave'}
 ART_IDS = ('thatch','shingle','tile','barn','tavern','smithy','chapel','manor','keep','tower','gate','ruin','tent','pavilion','supplies','well','market','fire','bridge','oak','pine','rocks','room','cave')
+ART_IDS += CULTURE_ART
 SIZES = dict(small=(760,560), medium=(1000,760), large=(1240,920))
 
 def text(value, limit=80):
@@ -21,7 +23,7 @@ def settings(raw):
     if kind not in KINDS or size not in SIZES or density not in ('sparse','normal','dense'):raise ValueError('Неизвестный тип, размер или плотность карты.')
     for k in ('water','walls'):
         if k in raw and type(raw[k])!=bool:raise ValueError('Проверьте настройки реки и стен.')
-    return dict(kind=kind,size=size,density=density,seed=text(raw.get('seed','')) or secrets.token_hex(6),
+    return dict(**style_settings(raw),kind=kind,size=size,density=density,seed=text(raw.get('seed','')) or secrets.token_hex(6),
                 water=bool(raw.get('water')) and kind in ('settlement','ruins','camp','fortress'),
                 walls=kind=='fortress' or bool(raw.get('walls')) and kind in ('settlement','camp'))
 
@@ -107,8 +109,13 @@ def generate(cfg):
             x=rng.randrange(16,w-16);y=rng.choice([rng.randrange(12,48),rng.randrange(h-48,h-12)])
             if cfg['water'] and abs(x-w*.80)<80:continue
             trees.append([x,y,rng.randrange(8,16)])
-    return dict(generatorVersion=2,width=w,height=h,cellSize=40,metersPerCell=5 if kind in ('dungeon','cave') else 2 if kind=='camp' else 10,
+    plan = dict(generatorVersion=3,width=w,height=h,cellSize=40,metersPerCell=5 if kind in ('dungeon','cave') else 2 if kind=='camp' else 10,
                 features=features,paths=paths,river=river,trees=trees)
+    for f in features:f.update(autoLabel=f['label'],baseLabel=f['label'])
+    plan['settings']=dict(cfg)
+    apply_style(plan,cfg)
+    size_generated(plan)
+    return plan
 
 def find(room, identifier):
     m=next((m for m in room.get('locationMaps',[]) if m['id']==identifier),None)
@@ -146,7 +153,7 @@ def apply(room, session, data):
         if not title:raise ValueError('Назовите локацию.')
         cfg=settings(data.get('settings',{}))
         saved=dict(id=old['id'] if old else secrets.token_hex(12),version=old['version']+1 if old else 1,
-                   title=title,kind=cfg['kind'],settings=cfg,source=src,revealed=False,**generate(cfg))
+                   title=title,kind=cfg['kind'],source=src,revealed=False,**generate(cfg))
         room['locationMaps']=[m for m in maps if m['id']!=saved['id']]+[saved]
         room.get('locationHistory',{}).pop(saved['id'],None)
         if parent:
@@ -155,7 +162,7 @@ def apply(room, session, data):
         return
     m=find(room,data.get('id'))
     if data.get('version')!=m['version']:raise ValueError('Карта уже изменена. Обновите её перед сохранением.')
-    before=snapshot(m) if action in ('locationMapEdit','locationMapFeature') else None
+    before=snapshot(m) if action in ('locationMapEdit','locationMapFeature','locationMapStyle') else None
     if action=='locationMapReveal':
         if type(data.get('revealed'))!=bool:raise ValueError('Выберите видимость карты.')
         if data['revealed'] and m['source']['kind']=='workshop':raise ValueError('Сначала разместите заготовку на общей карте.')
@@ -163,6 +170,8 @@ def apply(room, session, data):
             _,cell=source(room,m['source'])
             if cell.get('hidden') or cell.get('siteHidden'):raise ValueError('Сначала откройте само место игрокам на общей карте.')
         m['revealed']=data['revealed']
+    elif action=='locationMapStyle':
+        apply_style(m,style_settings(data.get('settings',{})))
     elif action=='locationMapEdit':
         edit_plan(room,m,data,ART_IDS)
     elif action=='locationMapUndo':

@@ -7,11 +7,12 @@ from location_geometry import transform_line
 
 
 def snapshot(m):
-    return {k:copy.deepcopy(m.get(k, [])) for k in ('features','paths','tokens')}
+    return {k:copy.deepcopy(m.get(k, {} if k=='settings' else 'neutral' if k=='culture' else 'grass' if k=='ground' else 'earth' if k=='roadSurface' else [])) for k in ('features','paths','tokens','culture','ground','roadSurface','settings')}
 
 
 def remember(room, m, before):
-    changes={k:v for k,v in before.items() if v!=m.get(k, [])}
+    after=snapshot(m)
+    changes={k:v for k,v in before.items() if v!=after[k]}
     if not changes:return
     history=room.setdefault('locationHistory',{}).setdefault(m['id'],[])
     history.append(changes)
