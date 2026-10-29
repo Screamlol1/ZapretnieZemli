@@ -103,3 +103,32 @@
 .location-culture-preview small{display:block;font-size:11px;margin-top:5px;color:#454d3f}
 .location-editor .location-add-culture{grid-column:1 / -1}
 @media(max-width:650px){.location-culture-preview{gap:6px}.location-culture-preview figure{padding:5px}.location-culture-preview figure>svg{height:85px}.location-style-fields label:first-child{grid-column:1 / -1}}
+.location-population{margin-top:18px;padding:16px;border:1px solid var(--line);border-radius:8px;background:#14251c;scroll-margin-top:18px;min-width:0}
+.location-population>summary{font-size:18px;font-weight:bold;min-height:40px}
+.population-actions{gap:8px;align-items:center}
+.population-actions button{flex:0 1 auto}
+.population-filters{margin:16px 0;grid-template-columns:minmax(0,2fr) minmax(130px,1fr)}
+.population-residents,.population-households{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,270px),1fr));gap:12px;margin:12px 0}
+.population-resident,.population-household{min-width:0;border:1px solid #465842;border-radius:6px;padding:14px;background:#203226;overflow-wrap:anywhere}
+.population-resident>div:first-child,.population-household{display:flex;flex-direction:column;gap:6px}
+.population-resident p,.population-household p{margin:8px 0}
+.population-role{color:var(--gold);font-size:13px}
+.population-visibility{color:#e0c184;font-size:12px;line-height:1.5}
+.population-family-members{margin:0 0 6px;padding-left:20px;font-size:13px}
+.population-family-members li{margin:5px 0}
+.population-resident .toolbar{gap:6px;margin-top:10px}
+.population-resident .toolbar button{font-size:12px;min-width:0;flex:1}
+.population-addresses{display:flex;flex-direction:column;align-items:stretch;gap:5px}
+.population-address{text-align:left;white-space:normal;font-size:13px}
+.population-feature{border-top:1px solid var(--line);margin-top:16px;padding-top:16px}
+.population-feature h3{font-size:16px;margin-top:10px}
+.population-feature ul{padding-left:18px}
+.population-feature li{margin-bottom:10px;overflow-wrap:anywhere}
+.population-feature li button,.population-feature p button{font-size:12px;padding:6px 8px}
+.population-feature>button{width:100%;white-space:normal}
+.population-dialog .location-fields{margin:12px 0}
+.population-dialog textarea{width:100%;min-width:0;resize:vertical;font:inherit;padding:10px;background:#101812;color:var(--ink);border:1px solid #485347;border-radius:4px}
+.population-check{display:flex;align-items:center;gap:8px;min-height:44px}
+.population-check input{width:auto!important}
+[data-population-building]{cursor:pointer}
+@media(max-width:650px){.location-population{padding:12px}.population-filters{grid-template-columns:1fr}.population-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.population-actions button{font-size:12px;white-space:normal}.population-residents,.population-households{grid-template-columns:1fr}.population-dialog{max-width:calc(100vw - 20px)}.population-feature{margin-top:12px}}

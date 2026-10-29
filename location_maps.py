@@ -7,6 +7,7 @@ import secrets
 from campaign_rules import coordinate
 from location_themes import ART_IDS as CULTURE_ART, style_settings, apply_style, size_generated
 from location_editor import edit as edit_plan, snapshot, remember, undo, feature_bounds
+from settlement_population import ACTIONS as POPULATION_ACTIONS, apply as population_action, detach as detach_population, public_population
 
 KINDS = {'settlement', 'camp', 'fortress', 'ruins', 'dungeon', 'cave'}
 ART_IDS = ('thatch','shingle','tile','barn','tavern','smithy','chapel','manor','keep','tower','gate','ruin','tent','pavilion','supplies','well','market','fire','bridge','oak','pine','rocks','room','cave')
@@ -154,6 +155,11 @@ def apply(room, session, data):
         cfg=settings(data.get('settings',{}))
         saved=dict(id=old['id'] if old else secrets.token_hex(12),version=old['version']+1 if old else 1,
                    title=title,kind=cfg['kind'],source=src,revealed=False,**generate(cfg))
+        if old and old.get('population'):
+            saved['population']=copy.deepcopy(old['population'])
+            # Generated feature IDs start again at f1; old homes must not attach
+            # silently to unrelated buildings after replacing the plan.
+            detach_population(saved['population'])
         room['locationMaps']=[m for m in maps if m['id']!=saved['id']]+[saved]
         room.get('locationHistory',{}).pop(saved['id'],None)
         if parent:
@@ -162,7 +168,7 @@ def apply(room, session, data):
         return
     m=find(room,data.get('id'))
     if data.get('version')!=m['version']:raise ValueError('Карта уже изменена. Обновите её перед сохранением.')
-    before=snapshot(m) if action in ('locationMapEdit','locationMapFeature','locationMapStyle') else None
+    before=snapshot(m) if action in ('locationMapEdit','locationMapFeature','locationMapStyle',*POPULATION_ACTIONS) else None
     if action=='locationMapReveal':
         if type(data.get('revealed'))!=bool:raise ValueError('Выберите видимость карты.')
         if data['revealed'] and m['source']['kind']=='workshop':raise ValueError('Сначала разместите заготовку на общей карте.')
@@ -172,6 +178,8 @@ def apply(room, session, data):
         m['revealed']=data['revealed']
     elif action=='locationMapStyle':
         apply_style(m,style_settings(data.get('settings',{})))
+    elif action in POPULATION_ACTIONS:
+        population_action(room,m,data)
     elif action=='locationMapEdit':
         edit_plan(room,m,data,ART_IDS)
     elif action=='locationMapUndo':
@@ -221,6 +229,7 @@ def redact(room):
         safe=copy.deepcopy(m);safe.pop('settings',None) # Seed could reconstruct secret rooms.
         safe.pop('undoCount',None)
         ids={f['id'] for f in safe['features'] if not f['secret']}
+        if 'population' in safe:safe['population']=public_population(safe['population'],ids)
         safe['features']=[{k:v for k,v in f.items() if k not in ('gmNote','secret')} for f in safe['features'] if f['id'] in ids]
         safe['paths']=[{k:v for k,v in p.items() if k!='secret'} for p in safe['paths'] if not p.get('secret') and all(i in ids for i in p['refs'])]
         actors={c['id'] for c in room['characters'] if not c.get('hidden')}

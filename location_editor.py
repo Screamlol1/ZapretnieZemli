@@ -4,10 +4,11 @@ import secrets
 import copy
 import json
 from location_geometry import transform_line
+from settlement_population import detach as detach_population
 
 
 def snapshot(m):
-    return {k:copy.deepcopy(m.get(k, {} if k=='settings' else 'neutral' if k=='culture' else 'grass' if k=='ground' else 'earth' if k=='roadSurface' else [])) for k in ('features','paths','tokens','culture','ground','roadSurface','settings')}
+    return {k:copy.deepcopy(m.get(k, {} if k in ('settings','population') else 'neutral' if k=='culture' else 'grass' if k=='ground' else 'earth' if k=='roadSurface' else [])) for k in ('features','paths','tokens','culture','ground','roadSurface','settings','population')}
 
 
 def remember(room, m, before):
@@ -102,6 +103,7 @@ def edit(room, m, data, art_ids):
             collection.remove(target)
             if kind == 'feature':
                 m['paths'] = [p for p in m['paths'] if target['id'] not in p.get('refs', [])]
+                if m.get('population'):detach_population(m['population'],target['id'])
         elif kind == 'path':
             if target.get('refs'):raise ValueError('Связанный проход перемещается вместе с комнатой.')
             x,y=point(m,data.get('point'));pts=target['points']
