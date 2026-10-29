@@ -21,3 +21,15 @@ for(const base of [s,generateLifepath({origin:'alder',profession:'fighter',age:'
  bad.skills[id]=old+1;bad.progression.earned=0;assert.throws(()=>validateImport(bad),/развития/);
 }
 console.log('Creation reasons and earned skill validation: caps, budget, lifepath, XP accounting and no normalization loss.');
+
+for(const base of [blank(),generateLifepath({origin:'alder',profession:'fighter',age:'young'},()=>1)]){
+ const hero=structuredClone(base),id='defender',start=base.talents[id]||0;
+ hero.progression={version:2,revision:2,baseSkills:{...base.skills},baseTalents:{...base.talents},basePaths:{[base.path]:base.pathRank},earned:100,spent:0,training:{},restCycle:null,talentTraining:{},practiceCycle:null,purchases:[]};
+ hero.paths={[base.path]:base.pathRank};
+ for(let rank=start+1;rank<=3;rank++){hero.progression.purchases.push({kind:'talent',id,rank,cost:rank*3,method:rank===1?'teacher':'advance',teacher:rank===1,session:1,cycle:'test'});hero.progression.spent+=rank*3;}
+ hero.talents[id]=3;
+ const extra=base.path==='enemy'?'shield':'enemy';hero.paths[extra]=1;hero.progression.purchases.push({kind:'path',id:extra,rank:1,cost:3,method:'teacher',teacher:true,session:1,cycle:'test'});hero.progression.spent+=3;
+ const checked=validateImport(hero);assert.equal(checked.talents[id],3);assert.equal(checked.paths[extra],1);assert.deepEqual(budgets(checked),budgets(base));assert.deepEqual(normalize(checked),checked);
+ for(const mutate of [s=>s.progression.spent--,s=>s.paths.blood=1,s=>s.pathRank=3,s=>s.progression.purchases[0].rank=3,s=>s.progression.purchases[0].cost=1]){const bad=structuredClone(hero);mutate(bad);assert.throws(()=>validateImport(bad),/развития/);}
+}
+console.log('Paid talents and multiple paths roundtrip for normal/lifepath sheets; rank, cost and profession tampering rejected.');

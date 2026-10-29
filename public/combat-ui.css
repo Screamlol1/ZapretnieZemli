@@ -70,3 +70,5 @@
  .combat-action-choice button { font-size: 12px; }
  #online-combat select { max-width: 100%; }
 }
+
+.combat-groups,.combat-kin,.combat-double-slash{border:1px solid var(--line,#5b624c);border-radius:12px;padding:16px;margin-block:14px;background:var(--panel,#1a2b22);min-width:0}.combat-groups h3,.combat-kin h3,.combat-double-slash h3{margin-top:0}.combat-groups details{margin-top:12px}.combat-groups input:not([type=checkbox]),.combat-kin input:not([type=checkbox]){max-width:100%;box-sizing:border-box}.combat-groups label,.combat-kin label{display:block;margin-block:10px}.combat-kin input[type=number]{width:100px}.combat-groups p,.combat-kin p{line-height:1.5}.combat-queue-card small{overflow-wrap:anywhere}.combat-double-slash select{max-width:100%}

@@ -37,4 +37,11 @@ const repairState={...original,items:[{id:'item',repair:{status:'requested',char
 repairState.items[0].repair.status='approved';assert.equal(sessionFlow(repairState).stage,1);assert.equal(sessionFlow(repairState).yourTurn,true);assert.equal(sessionFlow(repairState).actor,'one');
 repairState.items[0].repair.status='rolled';assert.equal(sessionFlow(repairState).stage,2);repairState.items[0].repair.waiting=true;assert.equal(sessionFlow(repairState).yourTurn,false);assert.equal(sessionFlow(repairState).identity.role,'gm');
 assert.deepEqual(identityColor('same-owner'),identityColor('same-owner'));const icon=identityMarkup({id:'a',name:'<img onerror="bad">',characterId:'" onload="bad'});assert.ok(!icon.includes('alt="" onload'));assert.ok(!icon.includes('<img onerror'));assert.ok(icon.includes('&lt;img'));
+const delegated={...structuredClone(original),me:original.members[0],participantDirectory:original.members,members:original.members.slice(0,2),tableTools:{control:{b:{by:'g'}}}};
+assert.equal(controllerIdentity(delegated,delegated.characters[2]).id,'g');
+const delegatedRoster=campaignParticipants(delegated);assert.equal(delegatedRoster.find(p=>p.id==='b').characterId,'three');assert.equal(delegatedRoster.find(p=>p.id==='b').online,false);assert.ok(delegatedRoster.find(p=>p.id==='g').characterId!=='three','Temporary control does not replace GM portrait with another player');
+delegated.journey.phase='resolving';delegated.journey.cycleParticipants[0].complete=true;assert.equal(sessionFlow(delegated).action,'control');assert.equal(sessionFlow(delegated).yourTurn,true);
+const healing={...original,treatment:{healer:'one',target:'three'}};assert.equal(sessionFlow(healing).action,'health');assert.equal(sessionFlow(healing).actor,'one');assert.equal(sessionFlow(healing).yourTurn,true);
+healing.treatment={waiting:true};assert.equal(sessionFlow(healing).yourTurn,false);assert.equal(sessionFlow(healing).identity.role,'gm');
+const recap={...original,sessionRecap:{status:'draft',session:1,characters:[{id:'one',owner:'a'}],answers:{}}};assert.equal(sessionFlow(recap).action,'recap');assert.equal(sessionFlow(recap).yourTurn,true);recap.sessionRecap.answers.one={};assert.equal(sessionFlow(recap).yourTurn,false);
 console.log('Session flow: owner turns, simultaneous travel, pending/private checks, GM control and stable identities passed.');

@@ -1,3 +1,4 @@
+import {combatAbilityDice} from './combat-ability-dice.js';
 import {polyhedralFace} from './dice-shapes.js';
 import {riskAction} from './dice-risk.js';
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -36,10 +37,12 @@ export function diceUI(getState,action){
  }
  function renderRisk(){
   const box=stage.querySelector('[data-risk]');if(!box)return;const cmd=riskAction(getState(),current);
+  const abilityWp=box.querySelector('[data-ability-wp]')?.value;
   const armor=box.querySelector('[data-power-armor]')?.checked,damage=box.querySelector('[data-power-damage]')?.value;
   box.innerHTML=cmd?`<details class="dice-risk-help"><summary>Что произойдёт при риске</summary><p>Риск: единицы характеристики причинят урон и дадут СВ герою; единицы снаряжения снизят его бонус. Шестёрки и единицы базы/снаряжения сохраняются. После успеха риск допустим, если он усиливает эффект — решает Мастер.${current.risk.action==='free'?' Свободный бросок: последствия в лист вносятся вручную.':''}</p></details><div class="toolbar"><button type="button" data-risk-push class="primary-action">Пойти на риск</button><button type="button" data-risk-accept>Принять результат</button></div><p data-risk-error role="alert"></p>`:'';
   if(cmd&&current.risk.action==='opposed')box.insertAdjacentHTML('afterbegin',`<p><strong>${esc(getState().opposedChecks.find(p=>p.id===current.risk.opposed)?.result||'')}</strong></p>`);
-  if(cmd&&current.risk.kind==='power')box.innerHTML=`<p>Путь клинка / стрелы: эффект применяется до брони. Доступно ${current.risk.wp} СВ.</p><label><input type="checkbox" data-power-armor> Игнорировать броню · 1 СВ</label>${current.risk.damageAllowed?'<label>Добавить урон · 1 СВ за очко<input type="number" data-power-damage min="0" max="10" value="0"></label>':''}<div class="toolbar"><button data-risk-push>Применить эффект</button><button data-risk-accept>Без эффекта</button></div><p data-risk-error role="alert"></p>`;
+  if(cmd&&current.risk.kind==='power')box.innerHTML=`<p>Путь клинка / стрелы: эффект применяется до брони. Доступно ${current.risk.wp} СВ.${current.risk.halfelf&&current.risk.damageAllowed?' Сила духа добавит ещё 1 урона при любом расходе СВ на это попадание.':''}${current.risk.npc?' ПВ может использовать способность один раз за раунд.':''}</p><label><input type="checkbox" data-power-armor> Игнорировать броню · 1 СВ</label>${current.risk.damageAllowed?'<label>Добавить урон · 1 СВ за очко<input type="number" data-power-damage min="0" max="10" value="0"></label>':''}<div class="toolbar"><button data-risk-push>Применить эффект</button><button data-risk-accept>Без эффекта</button></div><p data-risk-error role="alert"></p>`;
+  const ability=cmd&&combatAbilityDice(cmd.kinRepeat?{...current.risk,kind:'dwarf',wp:cmd.kinWP}:current.risk);if(ability)box.innerHTML=ability;if(abilityWp!==undefined&&box.querySelector('[data-ability-wp]'))box.querySelector('[data-ability-wp]').value=abilityWp;
   if(armor!==undefined&&box.querySelector('[data-power-armor]'))box.querySelector('[data-power-armor]').checked=armor;if(damage!==undefined&&box.querySelector('[data-power-damage]'))box.querySelector('[data-power-damage]').value=damage;
   box.querySelectorAll('button').forEach(b=>b.disabled=riskBusy||stage.dataset.phase==='rolling'||b.hasAttribute('data-risk-push')&&cmd?.pushAvailable===false);
  }
@@ -47,7 +50,8 @@ export function diceUI(getState,action){
   const push=e.target.closest('[data-risk-push]'),accept=e.target.closest('[data-risk-accept]');if(!push&&!accept||riskBusy)return;
   const cmd=riskAction(getState(),current);if(!cmd)return renderRisk();
   if(current.risk.kind==='power')cmd.command.power={ignoreArmor:!!push&&stage.querySelector('[data-power-armor]').checked,damage:push?Number(stage.querySelector('[data-power-damage]')?.value||0):0};
-  if(accept){if(cmd.action==='inventoryRepair')cmd.op='accept';else if(cmd.action==='combatAction')cmd.command.push=false;else if(cmd.action==='travelRisk')cmd.push=false;else cmd.action=cmd.action==='opposedPush'?'opposedAccept':cmd.action==='freePush'?'freeAccept':'characterAccept';}
+  if(['avoid','orc'].includes(current.risk.kind))cmd.command.wp=push?Number(stage.querySelector('[data-ability-wp]')?.value||0):0;
+  if(accept){if(cmd.action==='injury')cmd.op='accept';else if(cmd.action==='inventoryRepair')cmd.op='accept';else if(cmd.action==='combatAction')cmd.command.push=false;else if(cmd.action==='travelRisk')cmd.push=false;else cmd.action=cmd.action==='opposedPush'?'opposedAccept':cmd.action==='freePush'?'freeAccept':'characterAccept';}
   riskBusy=true;renderRisk();let ok=false;
   try{ok=await action(cmd);}finally{riskBusy=false;renderRisk();}
   if(ok){next();}else{const error=stage.querySelector('[data-risk-error]');if(error)error.textContent=document.getElementById('error')?.textContent||'Не удалось сохранить выбор. Повторите.';}

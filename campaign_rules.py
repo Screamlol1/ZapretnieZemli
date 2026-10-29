@@ -183,6 +183,7 @@ def apply(room,s,data):
         if cid not in t['party'] or not c or not gm and (c['owner']!=s['owner'] or c['kind']!='pc'): raise PermissionError('Выберите своего героя из отряда.')
         job=data.get('job'); role=data.get('role','none')
         if job not in JOBS or role not in ('none','lead','watch') or job!='hike' and role!='none': raise ValueError('Некорректное занятие или роль.')
+        if c.get('runtime',{}).get('meditation') and job!='rest':raise ValueError('Во время медитации можно только отдыхать. Сначала прервите медитацию на странице здоровья.')
         previous=t['plans'].get(cid,{})
         gear_item=data.get('gearItem','') if gm else previous.get('gearItem','')
         selected_item=next((i for i in owned(room,cid) if i['id']==gear_item),None)
@@ -310,6 +311,7 @@ def advance(room,data,defer_clock=False):
     if any(c is None for c in party):raise ValueError('Участник больше недоступен. Измените состав отряда.')
     plans=t['plans']
     if any(c['id'] not in plans for c in party):raise ValueError('Каждый участник должен выбрать занятие.')
+    if any(c.get('runtime',{}).get('meditation') and plans[c['id']]['job']!='rest' for c in party):raise ValueError('Медитирующий герой должен отдыхать. Измените заявку или прервите медитацию.')
     if any(min(c['runtime']['current'].values())<=0 for c in party):raise ValueError('В отряде есть сломленный персонаж. Сначала разрешите его состояние по правилам.')
     hiking=all(plans[c['id']]['job']=='hike' for c in party)
     if any(plans[c['id']]['job']=='hike' for c in party) and not hiking:raise ValueError('Для перехода весь отряд должен идти. Разделение отряда пока разрешается отдельно.')

@@ -44,8 +44,15 @@ def apply(room,s,data):
         else:event['risk']=dict(action='opposed',character=c['id'],roll=r['id'],opposed=p['id'],attribute=r['attribute'])
     elif action in ('opposedPush','opposedAccept'):
         if key!='attacker' or not all(p[k]['rolled'] for k in ('attacker','defender')):raise ValueError('Риск доступен только инициатору после бросков обеих сторон.')
-        skill_check(room,s,dict(action='characterPush' if action=='opposedPush' else 'characterAccept',character=c['id'],roll=side['roll']),opposed=True)
-        r=room['gmChecks'][c['id']] if p['private'] else c['runtime']['lastCheck'];side['hits']=r['hits'];p['done']=True
+        skill_check(room,s,dict(action='characterPush' if action=='opposedPush' else 'characterAccept',character=c['id'],roll=side['roll'],kinRepeat=data.get('kinRepeat'),kinAttempt=data.get('kinAttempt')),opposed=True)
+        r=room['gmChecks'][c['id']] if p['private'] else c['runtime']['lastCheck'];side['hits']=r['hits'];side['pushed']=bool(r.get('pushed'))
+        side['kinPushes']=r.get('kinPushes',0)
+        from risk_rules import can_push
+        from injuries import blocked
+        repeat=(action=='opposedPush' and c['kind']=='pc' and c['sheet']['kin']=='dwarf' and c['runtime'].get('wp',0)>0 and min(c['runtime']['current'].values())>0 and not blocked(c) and can_push(r))
+        p['done']=not repeat
+        if repeat:room['diceRolls'][-1]['risk']=dict(action='opposed',character=c['id'],roll=r['id'],opposed=p['id'],attribute=r['attribute'])
+        elif action=='opposedPush':room['diceRolls'][-1].pop('risk',None)
     else:raise ValueError('Неизвестное действие встречной проверки.')
     if all(p[k]['rolled'] for k in ('attacker','defender')):
         a=p['attacker']['hits'];d=p['defender']['hits'];net=max(0,a-d);p['net']=net

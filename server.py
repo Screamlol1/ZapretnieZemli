@@ -1,5 +1,11 @@
 from opposed_checks import apply as opposed_action
 from free_risk import apply as free_risk_action
+import table_tools
+import change_history
+import injuries
+import session_recap
+import save_points
+import kin_checks
 """Campaign server. Python 3.11+, no third-party dependencies."""
 from journal import stamp_entries
 from location_maps import apply as location_map_action, redact as redact_location_maps
@@ -127,6 +133,7 @@ class Game:
         if len(room.get('identities',{}))>=500 and not identity:
             raise ValueError('Предел участников кампании достигнут.')
         room.setdefault('identities',{})[resume]=dict(owner=owner,role=role,name=name)
+        if table_tools.returned(room,owner,name):room['revision']+=1
         if account: room['identities'][resume]['account'] = account_id
         self.save(room)
         for t in [t for t,x in self.sessions.items() if x['room']==room['id'] and x['owner']==owner]:
@@ -157,6 +164,10 @@ class Game:
     def view(self, s):
         room = self.room(s['room'])
         journey_state(room)
+        change_history.project(room,s)
+        table_tools.project(room,s)
+        injuries.redact(room,s)
+        session_recap.public(room,s)
         room['maps']['world']=effective_world(room)
         room['mapTerrain']={'referenceCount':len(room.get('_worldBase',{}))}
         room.pop('_worldBase',None)
@@ -224,12 +235,18 @@ class Game:
 
     def action(self, s, data):
         room = self.room(s['room'])
+        medical_before=injuries.snapshot(room)
         previous_logs={id(entry) for entry in room['log']}
         action = data.get('action')
         gm = s['role']=='gm'
-        if room.get('journeyRisk') and action not in ('travelRisk','chat','roll','freePush','freeAccept'):raise ValueError('Сначала завершите проверку путешествия: примите результат или пойдите на риск.')
+        if room.get('treatment') and action not in ('injury','chat','roll','freePush','freeAccept','tableTool'):
+            raise ValueError('Сначала завершите лечение: примите результат или пойдите на риск.')
+        if room.get('treatment') and action=='tableTool' and data.get('op')=='completeFor':
+            raise ValueError('Сначала завершите лечение.')
+        if room.get('journeyRisk') and action not in ('travelRisk','chat','roll','freePush','freeAccept','tableTool'):raise ValueError('Сначала завершите проверку путешествия: примите результат или пойдите на риск.')
         if room.get('combat',{}).get('pendingRisk') and action in ('character','actor','assignCharacter','runtime','deleteCharacter','combatCreate','combatManual','combatClose'):raise ValueError('Сначала завершите текущий боевой бросок.')
         t=journey_state(room)
+        history_before=change_history.snapshot(room);history_context=change_history.context(room)
         repairing={i['repair']['character'] for i in room.get('items',[]) if i.get('repair',{}).get('status')=='rolled'}
         target=data.get('id') if isinstance(data.get('id'),str) else None
         mutation=action in ('character','actor','assignCharacter','runtime','deleteCharacter','characterProgression') and target in repairing
@@ -242,7 +259,18 @@ class Game:
             raise ValueError('Персонаж выполняет занятие. Завершите текущую четверть перед изменением листа или владельца.')
         if action in ('paint','mapLocation','mapArtwork','worldLayout','event','deleteCharacter','assignCharacter','deleteToken','combatCreate','combatClose','actor','combatManual') and not gm:
             raise PermissionError('Действие доступно только Мастеру.')
-        if action in ('inventoryOpen','itemCreate','itemEdit','itemTransfer','itemWear','equipment','inventoryCoins','inventoryResource','itemAppearance','itemSplit','itemConsume','itemMerge','inventoryRepair'):
+        if action=='injury':
+            injuries.apply(room,s,data)
+        elif action=='characterAbility':
+            kin_checks.apply(room,s,data)
+        elif action=='sessionRecap':
+            session_recap.apply(room,s,data)
+        elif action=='tableTool':
+            online={x['owner'] for x in self.sessions.values() if x['room']==room['id'] and time.time()-x['seen']<45}
+            table_tools.apply(room,s,data,online)
+        elif action=='changeUndo':
+            change_history.undo(room,s,data)
+        elif action in ('inventoryOpen','itemCreate','itemEdit','itemTransfer','itemWear','equipment','inventoryCoins','inventoryResource','itemAppearance','itemSplit','itemConsume','itemMerge','inventoryRepair'):
             inventory_action(room,s,data)
             if action!='inventoryOpen':room['journey']['gmReady']=False
         elif action in ('opposedCreate','opposedRoll','opposedPush','opposedAccept','opposedCancel'):
@@ -254,6 +282,8 @@ class Game:
         elif isinstance(action,str) and action.startswith('workshop'):
             workshop_action(room,s,data)
         elif isinstance(action,str) and (action.startswith('travel') or action.startswith('hold')):
+            if action=='travelSession' and (room.get('sessionRecap') or {}).get('status')=='draft':
+                raise ValueError('Завершите или отмените открытые итоги встречи.')
             if action in ('travelSetup','travelParty','travelPlan','travelReady','travelAdvance'):
                 ids=data.get('party',t['party'])
                 if isinstance(ids,list):
@@ -419,7 +449,7 @@ class Game:
         elif action=='combatCreate':
             if room.get('combat',{}).get('phase')=='combat':raise ValueError('Сначала завершите текущий бой.')
             choices=data.get('units')
-            if not isinstance(choices,list) or not 2<=len(choices)<=10:raise ValueError('Выберите 2–10 бойцов.')
+            if not isinstance(choices,list) or not 2<=len(choices)<=40:raise ValueError('Выберите 2–40 бойцов; не более десяти карт инициативы.')
             characters=[];owners={};seen=set()
             for choice in choices:
                 if not isinstance(choice,dict):raise ValueError('Некорректный отряд.')
@@ -427,9 +457,9 @@ class Game:
                 if not c or c.get('hidden') or c['id'] in seen or choice.get('team') not in ('A','B'):raise ValueError('Нужны разные открытые персонажи и отряды A/B.')
                 equipped=None
                 if c['kind']!='monster':ensure_inventory(room,c['id']);equipped=combat_gear(room,c)
-                seen.add(c['id']);characters.append(dict(character=c,team=choice['team'],equipment=equipped));owners[c['id']]=c['owner']
+                seen.add(c['id']);characters.append(dict(character=c,team=choice['team'],equipment=equipped,initiativeGroup=choice.get('group',''),activations=choice.get('activations',1)));owners[c['id']]=c['owner']
             if len(set(c['team'] for c in characters))!=2:raise ValueError('Нужен хотя бы один боец в каждом отряде.')
-            room['combat']=self.engine(dict(create=characters,mapId=data.get('mapId','road')))
+            room['combat']=self.engine(dict(create=characters,mapId=data.get('mapId','road'),sharedHeroInitiative=data.get('sharedHeroInitiative') is True))
             room['combatOwners']=owners;room['combatRevision']=room.get('combatRevision',0)+1
         elif action=='combatAction':
             battle=room.get('combat')
@@ -437,17 +467,19 @@ class Game:
             if data.get('revision')!=room.get('combatRevision'):raise ValueError('Бой обновился. Повторите действие после синхронизации.')
             cmd=data.get('command',{})
             if not isinstance(cmd,dict):raise ValueError('Некорректная команда.')
-            name=cmd.get('action');actor=cmd.get('unit') if name in ('move','defense','initiativeChoose','initiativeOffer','initiativeAccept','initiativeSurprise') else (battle['order'][battle['turn']] if battle['order'] else None)
+            cmd={**cmd,'interactive':True}
+            name=cmd.get('action');actor=cmd.get('unit') if name in ('move','defense','initiativeChoose','initiativeOffer','initiativeAccept','initiativeSurprise','initiativeConfigure','kinAbility') else (battle['order'][battle['turn']] if battle['order'] else None)
             pending=battle.get('pendingRisk')
             if pending:
                 if name!='risk' or cmd.get('roll')!=pending['id']:raise ValueError('Сначала примите результат броска или пойдите на риск.')
                 actor=pending['actor']
                 if pending.get('private') and not gm:raise PermissionError('Скрытый бросок завершает Мастер.')
             if not gm:
-                if name in ('start','ai','resolve','initiativeSurprise') or not actor or room.get('combatOwners',{}).get(actor)!=s['owner']:raise PermissionError('Вы управляете только своим бойцом.')
+                if name in ('start','ai','resolve','initiativeSurprise','initiativeConfigure','initiativeAutogroup','initiativeGroupNext') or not actor or room.get('combatOwners',{}).get(actor)!=s['owner']:raise PermissionError('Вы управляете только своим бойцом.')
                 char=next((c for c in room['characters'] if c['id']==actor),None)
                 if not char or char['kind']!='pc':raise PermissionError('ПВ и чудовищами управляет Мастер.')
-                if name not in ('defense','risk','initiativeChoose','initiativeOffer','initiativeAccept') and battle['phase']=='combat' and actor!=battle['order'][battle['turn']]:raise PermissionError('Сейчас ход другого бойца.')
+                outside=name=='kinAbility' and cmd.get('ability') in ('orc','releasePrey')
+                if name not in ('defense','risk','initiativeChoose','initiativeOffer','initiativeAccept') and not outside and battle['phase']=='combat' and actor!=battle['order'][battle['turn']]:raise PermissionError('Сейчас ход другого бойца.')
             private=pending.get('private',False) if pending else dice_visibility(s,data)
             room['combat']=self.engine(dict(battle=battle,command=cmd))
             updated=room['combat']
@@ -476,9 +508,13 @@ class Game:
             if data.get('slow',True):
                 if battle['order'][battle['turn']]!=actor or caster['slow']<1:raise ValueError('Нет медленного действия у активного бойца.')
                 caster['slow']-=1
+                battle['roundStarted']=True;battle['activationStarted']=True;battle.pop('initiativeOffer',None)
             wp=data.get('wp',0)
             if type(wp)!=int or wp<0 or wp>caster['wp']:raise ValueError('Недостаточно силы воли.')
+            was_positive=victim[attribute]>0
+            battle.pop('manualOrcWindow',None)
             caster['wp']-=wp;victim[attribute]=max(0,victim[attribute]-damage)
+            if was_positive and victim[attribute]==0 and victim.get('kin')=='orc':battle['manualOrcWindow']=dict(actor=target,attribute=attribute)
             battle['log']=(battle['log']+[f'Мастер: {note.strip()}. {victim["name"]}: {attribute} −{damage}.'])[-300:]
             battle['publicLog']=(battle.get('publicLog',battle['log'][:-1])+[battle['log'][-1]])[-300:]
             battle['event']=dict(id=secrets.token_hex(8),actor=actor,target=target,hitIds=[target] if damage else [],kind='cast',time=time.time())
@@ -523,12 +559,27 @@ class Game:
             publish_dice(room,s['name'],'Свободная проверка',groups,result_text(hits,penalties.count(6)),private,risk=dict(action='free',roll=roll_id,owner=s['owner']))
         else:
             raise ValueError('Неизвестное действие.')
+        if action=='combatAction':
+            for c in room['characters']:
+                unit=next((u for u in room['combat']['units'] if u['id']==c['id']),None)
+                if unit:
+                    if unit.get('prey'):
+                        unit['prey'].setdefault('markedDay',room['journey']['day'])
+                        c['runtime']['prey']=unit['prey']
+                    else:c['runtime'].pop('prey',None)
+        injuries.reconcile(room,medical_before,data)
         stamp_entries(room,previous_logs,action)
+        change_history.record(room,history_before,s,data,history_context)
         room['log']=room['log'][-200:]
         room['revision']+=1
         if action in ('paint','mapArtwork','worldLayout','character','actor','deleteCharacter','assignCharacter','runtime') and room['journey']['phase']=='planning':
             room['journey']['gmReady']=False
-        self.save(room)
+        label=room.pop('_sessionCheckpoint',None)
+        try:
+            if label:save_points.insert(self.db,room,'campaign','',label,save_points.capture(room,'campaign'))
+            self.save(room)
+        except Exception:
+            self.db.rollback();raise
         return self.view(s)
 
     def upload_map(self, s, data):

@@ -17,7 +17,7 @@ export function currentMasterIdentity(state){
 export function controllerIdentity(state,character){
  const directory=[...(state.members||[]),...(state.me?[state.me]:[]),...(state.participantDirectory||[]),...(state.owners||[])];
  const owner=character?.owner,player=directory.find(p=>p.owner===owner);
- if(character?.kind!=='pc'||player?.role==='gm')return {...currentMasterIdentity(state),characterId:character?.id||''};
+ if(character?.kind!=='pc'||player?.role==='gm'||state.tableTools?.control?.[owner])return {...currentMasterIdentity(state),characterId:character?.id||'',delegated:!!state.tableTools?.control?.[owner]};
  const cycle=(state.journey?.cycleParticipants||[]).find(p=>p.owner===owner);
  return {id:owner||character?.id||'guest',owner,role:'player',name:player?.name||cycle?.name||'Владелец героя',characterId:character?.id||''};
 }
@@ -30,6 +30,6 @@ export function campaignParticipants(state){
   const gm=p.owner==='gm',known=gm?[...byOwner.values()].find(x=>x.role==='gm'):byOwner.get(p.owner);
   if(!known){const person=gm?master:(state.participantDirectory||[]).find(x=>x.owner===p.owner);byOwner.set(person?.owner||p.owner,{...p,...person,id:person?.owner||p.owner,role:gm?'gm':'player',online:false});}
  }
- for(const c of characters){if(!(state.journey?.party||[]).includes(c.id)&&!state.combat?.units?.some(u=>u.id===c.id))continue;const identity=controllerIdentity(state,c),owner=identity.owner||c.owner;if(!byOwner.has(owner))byOwner.set(owner,{id:owner,owner,name:identity.name,role:identity.role,online:false});}
- return [...byOwner.values()].map(p=>({...p,characterId:characters.find(c=>controllerIdentity(state,c).owner===p.owner)?.id||''})).sort((a,b)=>(a.role==='gm'?-1:1)-(b.role==='gm'?-1:1)||a.name.localeCompare(b.name,'ru'));
+ for(const c of characters){if(!(state.journey?.party||[]).includes(c.id)&&!state.combat?.units?.some(u=>u.id===c.id))continue;const identity=controllerIdentity(state,c),person=identity.delegated?(state.participantDirectory||[]).find(p=>p.owner===c.owner):null,owner=identity.delegated?c.owner:identity.owner||c.owner;if(!byOwner.has(owner))byOwner.set(owner,{id:owner,owner,name:person?.name||identity.name,role:identity.delegated?'player':identity.role,online:false});}
+ return [...byOwner.values()].map(p=>({...p,characterId:characters.find(c=>c.owner===p.owner||p.role==='gm'&&!state.tableTools?.control?.[c.owner]&&controllerIdentity(state,c).owner===p.owner)?.id||''})).sort((a,b)=>(a.role==='gm'?-1:1)-(b.role==='gm'?-1:1)||a.name.localeCompare(b.name,'ru'));
 }

@@ -113,3 +113,53 @@ class ProgressionTests(unittest.TestCase):
         foreign=dict(self.player,owner='someone_else')
         with self.assertRaises(PermissionError):self.act('advance',actor=foreign,skill='heal')
         self.assertEqual(self.hero()['sheet']['progression']['spent'],5)
+
+    def test_talents_rank_three_additional_paths_and_library_roundtrip(self):
+        self.start(100)
+        with self.assertRaisesRegex(ValueError,'практики'):
+            self.act('talentAdvance',actor=self.player,kind='talent',talent='defender')
+        self.act('talentTraining',kind='talent',talent='defender',method='teacher',teacherRank=1,confirmed=True,note='Четверть с защитником')
+        for _ in range(3):self.act('talentAdvance',actor=self.player,kind='talent',talent='defender')
+        self.assertEqual(self.hero()['sheet']['talents']['defender'],3)
+        self.assertEqual(self.hero()['sheet']['progression']['spent'],18)
+        self.act('talentTraining',kind='path',talent='enemy',method='teacher',teacherRank=1,confirmed=True,note='Учитель пути врага')
+        self.act('talentAdvance',actor=self.player,kind='path',talent='enemy')
+        self.act('talentAdvance',actor=self.player,kind='path',talent='blade')
+        self.assertEqual(self.hero()['sheet']['paths'],dict(blade=2,enemy=1))
+        self.assertEqual(self.hero()['sheet']['pathRank'],2)
+        saved=self.game.accounts.dashboard(self.pa)['characters'][0]
+        self.assertEqual(saved['sheet'],self.hero()['sheet'])
+        self.game.db.close();self.game=Game(self.path)
+        self.assertEqual(self.hero()['sheet']['progression']['spent'],27)
+        with self.assertRaisesRegex(ValueError,'Максимальный'):self.act('talentAdvance',actor=self.player,kind='talent',talent='defender')
+        with self.assertRaises(ValueError):self.act('talentAdvance',actor=self.player,kind='path',talent='blood')
+
+    def test_magic_teacher_rank_and_tripled_cost(self):
+        sheet=copy.deepcopy(self.sheet);sheet.update(profession='druid',path='healing',gear=['staff']);sheet['skills']={k:0 for k in sheet['skills']}
+        self.game.action(self.player,dict(action='character',id='hero',sheet=sheet))
+        self.start(100)
+        self.act('talentAdvance',actor=self.player,kind='path',talent='healing')
+        self.assertEqual(self.hero()['sheet']['progression']['spent'],18)
+        with self.assertRaisesRegex(ValueError,'более высоким'):
+            self.act('talentTraining',kind='path',talent='healing',method='teacher',teacherRank=2,confirmed=True,note='Недостаточный ранг')
+        self.act('talentTraining',kind='path',talent='healing',method='teacher',teacherRank=3,confirmed=True,note='Наставник исцеления')
+        self.act('talentAdvance',actor=self.player,kind='path',talent='healing')
+        self.assertEqual(self.hero()['sheet']['progression']['spent'],27)
+        self.act('talentTraining',kind='path',talent='sight',method='practice',success=True,confirmed=True,note='Четверть практики, Разум: успех')
+        self.act('talentAdvance',actor=self.player,kind='path',talent='sight')
+        self.assertEqual(self.hero()['sheet']['progression']['spent'],36)
+
+    def test_practice_failure_quarter_limit_and_permission(self):
+        self.start(100)
+        args=dict(kind='talent',talent='defender',method='practice',success=False,confirmed=True,note='Разум: ни одного успеха')
+        with self.assertRaises(PermissionError):self.act('talentTraining',actor=self.player,**args)
+        self.act('talentTraining',**args)
+        with self.assertRaisesRegex(ValueError,'уже учтена'):self.act('talentTraining',**{**args,'success':True})
+        with self.assertRaisesRegex(ValueError,'практики'):self.act('talentAdvance',actor=self.player,kind='talent',talent='defender')
+        room=self.game.room(self.code);room['journey']['cycleId']='new-quarter';self.game.save(room)
+        self.act('talentTraining',**{**args,'success':True})
+        self.act('rest',confirmed=True,allowed=True,note='Отдых после практики')
+        self.act('talentAdvance',actor=self.player,kind='talent',talent='defender')
+        with self.assertRaisesRegex(ValueError,'развития'):
+            forged=copy.deepcopy(self.hero()['sheet']);forged['paths']['enemy']=3
+            self.game.action(self.player,dict(action='character',id='hero',sheet=forged))

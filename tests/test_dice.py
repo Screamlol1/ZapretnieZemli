@@ -149,6 +149,15 @@ class DiceTests(unittest.TestCase):
         for e in v['diceRolls']:self.assertNotIn(e['id'],json.dumps(public))
         self.assertNotIn('commandLog',json.dumps(public))
         self.assertNotIn('diceEvents',json.dumps(public))
+        # Campaign rolls always wait for explicit decisions, even when an old
+        # client omits interactive. Secret continuation stays secret as well.
+        for _ in range(8):
+            pending=v['combat'].get('pendingRisk')
+            if not pending:break
+            self.assertTrue(pending['private'])
+            self.assertEqual(self.game.view(self.ps)['combat']['pendingRisk'],{'waiting':True})
+            v=self.game.action(self.gs,dict(action='combatAction',revision=v['combatRevision'],command=dict(action='risk',roll=pending['id'],push=False,wp=0)))
+        self.assertFalse(v['combat'].get('pendingRisk'))
         # Following public actions do not republish a previous private trace.
         v=self.game.action(self.gs,dict(action='combatAction',revision=v['combatRevision'],command=dict(action='defense',unit=npc['id'],value='none')))
         self.assertEqual(self.game.view(self.ps)['diceRolls'],[])

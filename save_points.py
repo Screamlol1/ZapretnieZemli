@@ -79,6 +79,16 @@ def apply(game,s,data):
     art=restored.setdefault('mapArtwork',{})
     art['revision']=max(art.get('revision',0),room.get('mapArtwork',{}).get('revision',0))+1
     restored['log']=(restored.get('log',[])+[dict(name='Мастер',text='Кампания восстановлена из сохранения: '+document['label'])])[-200:]
+    recap=restored.get('sessionRecap')
+    if recap and recap.get('status')=='draft':
+        recap['id']=secrets.token_hex(12)
+        recap['version']=max(recap.get('version',0),(room.get('sessionRecap') or {}).get('version',0))+1
+    # Ephemeral control grants, camera requests and undo snapshots belong to the
+    # discarded timeline. Restoring a checkpoint must never resurrect them.
+    tools=restored.get('tableTools')
+    if tools:
+        tools.update(control={},pings=[],focus=None,proposals={})
+    restored['changeHistory']=[];restored['changeVersions']={}
     restored['savedAt']=time.time()
     with game.db:
         insert(game.db,room,'campaign','','Перед восстановлением',capture(room,'campaign'))

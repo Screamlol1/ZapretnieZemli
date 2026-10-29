@@ -5,6 +5,8 @@ const gmIdentity=currentMasterIdentity;
 export function sessionFlow(s){
  const b=s.combat,t=s.journey||{},gm=s.me.role==='gm',people=s.characters||[],character=id=>people.find(c=>c.id===id),base={view:'map',action:'view',button:'К действиям',stage:0,stages:[],waiting:[],yourTurn:false};
  const controlled=(id,fallback)=>{const c=character(id)||b?.units?.find(u=>u.id===id);return {identity:c?controllerIdentity(s,c):gmIdentity(s),yourTurn:c?mine(s,c):gm,actorName:c?.name||fallback||'Мастер',actor:id};};
+ if(s.treatment){const p=s.treatment;return {...base,...controlled(p.waiting?null:p.healer),view:'crew',action:'health',eyebrow:'Помощь союзнику',title:p.waiting?'Закрытая проверка лечения':'Завершите проверку лечения',detail:p.waiting?'Ожидается решение Мастера.':'Целитель принимает результат или идёт на риск; помощь применится после решения.',button:'К лечению',stage:1,stages:['Выбор помощи','Проверка','Последствия']};}
+ if(s.sessionRecap?.status==='draft'){const r=s.sessionRecap,own=(r.characters||[]).filter(c=>c.owner===s.me.owner),missing=own.some(c=>!r.answers?.[c.id]);return {...base,view:'journal',action:'recap',eyebrow:`Итоги встречи ${r.session}`,title:gm?'Проверьте итоги и опыт':missing?'Заполните итоги героя':'Ожидаем итоги Мастера',detail:'Ответы игроков, важные события, опыт и контрольное сохранение.',identity:gm||!missing?gmIdentity(s):undefined,yourTurn:gm||missing,button:'Открыть итоги',stage:gm?1:0,stages:['Ответы игроков','Решение Мастера','Сохранение и развитие']};}
  if(b&&['setup','combat'].includes(b.phase)){
   const active=b.units.find(u=>u.id===b.order?.[b.turn]);
   const combat={...base,view:'combat',button:'Открыть бой',eyebrow:b.phase==='setup'?'Подготовка боя':`Бой · раунд ${b.round}`,stages:['Инициатива','Действия','Завершение хода']};
@@ -25,7 +27,8 @@ export function sessionFlow(s){
  if(pending)return {...journey,title:'Мастер разрешает события',detail:`Незавершённых событий: ${pending}. После решения откроется подтверждение результатов.`,stage:1,identity:gmIdentity(s),yourTurn:gm,button:gm?'К событиям':'К путешествию',action:gm?'events':'view'};
  const participants=t.cycleParticipants||[],who=gm?'gm':s.me.owner;
  if(t.phase==='resolving'){
-  const waiting=participants.filter(p=>!p.complete),own=waiting.some(p=>p.owner===who);
+  const waiting=participants.filter(p=>!p.complete),delegated=gm&&waiting.some(p=>s.tableTools?.control?.[p.owner]),own=waiting.some(p=>p.owner===who);
+  if(delegated&&!own)return {...journey,title:'Проверьте результаты отсутствующего игрока',detail:'Вы приняли временное управление. Подтверждение выполняется отдельно после проверки результатов.',stage:2,waiting:waiting.map(p=>p.owner),identity:gmIdentity(s),yourTurn:true,action:'control',button:'К временному управлению'};
   return {...journey,title:own?'Подтвердите свои результаты':'Ожидаем подтверждений',detail:waiting.length?'Ожидаем: '+waiting.map(p=>p.name).join(', ')+'.':'Все готовы. Четверть сменится автоматически.',stage:2,waiting:waiting.map(p=>p.owner),yourTurn:own,button:own?'Проверить и подтвердить':'Посмотреть результаты'};
  }
  const missing=party.filter(c=>!t.plans?.[c.id]),own=missing.filter(c=>mine(s,c));

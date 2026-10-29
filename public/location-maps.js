@@ -89,6 +89,7 @@ export function locationMapsUI(getState,action,show){
   const optionsHTML='<option value="">Выберите карту</option>'+maps().map(m=>`<option value="${m.id}">${esc(m.title)} · ${locationKinds[m.kind]}${isGM&&!m.revealed?' · скрыта':''}</option>`).join('');
   const lib=$('[data-location-library]');if(lib.innerHTML!==optionsHTML)lib.innerHTML=optionsHTML;lib.value=selected;
   const m=current();$('[data-location-empty]').hidden=!!m;$('[data-location-content]').hidden=!m;
+  let share=$('[data-table-show-location]');if(!share){share=document.createElement('button');share.type='button';share.dataset.tableShowLocation='';share.textContent='Предложить группе посмотреть';$('[data-location-reveal]').after(share);}share.hidden=!isGM||!m?.revealed;share.dataset.tableShowLocation=m?.id||'';
   if(!m){canvas.innerHTML='';$('[data-location-feature-panel]').innerHTML='';$('[data-location-legend]').innerHTML='';last='';editor.render();populationUI.render();return;}
   if(shown!==m.id){shown=m.id;generator(m);lib.value=m.id;}syncStyle(m);
   $('[data-location-title]').textContent=m.title;$('[data-location-status]').textContent=isGM?(m.revealed?'Карта открыта игрокам':'Карта скрыта от игроков'):'Карта открыта Мастером';$('[data-location-reveal]').textContent=m.revealed?'Скрыть карту':'Показать игрокам';$('[data-location-source]').textContent=sourceText(m);
