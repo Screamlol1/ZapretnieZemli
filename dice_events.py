@@ -32,10 +32,11 @@ def pools(r):
         groups.append(dict(kind='artifact',label='Гордость',values=[r['pride']['value']],sides=12,negative=False))
     return groups
 
-def publish(room, name, label, groups, result, private=False, message=None, risk=None):
+def publish(room, name, label, groups, result, private=False, message=None, risk=None, sources=None):
     event = dict(id=secrets.token_hex(12), time=time.time(), name=name, label=label,
                  groups=copy.deepcopy([g for g in groups if g['values']]), result=str(result), private=bool(private))
     if risk:event['risk']=copy.deepcopy(risk)
+    if sources:event['sources']=copy.deepcopy(sources)
     pending={room.get('combat',{}).get('pendingRisk',{}).get('id'),room.get('journeyRisk',{}).get('id')} - {None}
     events=room.get('diceRolls', []) + [event]
     check_ids={r.get('diceEvent') for c in room.get('characters',[]) for r in

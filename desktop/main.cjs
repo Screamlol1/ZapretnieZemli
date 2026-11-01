@@ -3,7 +3,9 @@ const path=require('node:path'),fs=require('node:fs'),{pathToFileURL}=require('n
 const {GameHost}=require('./host.cjs'),{connectionURL,sameOrigin,safeExternal}=require('./policy.cjs');
 const {DEFAULTS,preferences,fitBounds,screenChanged}=require('./preferences.cjs');
 const {buildReport,errorCode,runtimeInfo,localHealth,reportFilename}=require('./diagnostics.cjs');
-const os=require('node:os');
+const os=require('node:os'),{spawn}=require('node:child_process');
+const {Updates}=require('./updates.cjs'),{runRecovery}=require('./recovery.cjs');
+let updates,maintenance=false;
 const override=process.argv.find(a=>a.startsWith('--zz-data-dir='));
 const base=override?path.resolve(override.slice('--zz-data-dir='.length)):path.join(process.env.LOCALAPPDATA||app.getPath('appData'),'ZapretnieZemli');
 fs.mkdirSync(base,{recursive:true});app.setPath('userData',path.join(base,'profile'));app.setAppUserModelId('ru.zapretnie-zemli.table');
@@ -16,7 +18,7 @@ let diagnosticsPending=false,lastDiagnosticError='';const recentDiagnosticErrors
 function saveSettings(){const saved=displayPending?{...settings,preferences:displayPending.previous,bounds:displayPending.bounds}:settings;fs.writeFileSync(settingsPath+'.tmp',JSON.stringify(saved,null,2));fs.renameSync(settingsPath+'.tmp',settingsPath);}
 function live(contents){return contents&&!contents.isDestroyed();}
 function display(){return win?screen.getDisplayMatching(win.getBounds()):screen.getPrimaryDisplay();}
-function state(){const wc=gameView?.webContents,d=display();return {...host.state,version:app.getVersion(),dataPath:host.data,recent:settings.recent,view,settingsOpen,gameUrl:live(wc)?wc.getURL():'',gameTitle:live(wc)?wc.getTitle():'',canGoBack:!!(live(wc)&&wc.navigationHistory.canGoBack()),canGoForward:!!(live(wc)&&wc.navigationHistory.canGoForward()),loading:view==='game'&&gameLoading,viewError:view==='game'?viewError:'',loadingTheme,preferences:{...settings.preferences},display:{width:d.workArea.width,height:d.workArea.height,screenWidth:d.bounds.width,screenHeight:d.bounds.height},displayPending:displayPending?{seconds:Math.max(0,Math.ceil((displayPending.deadline-Date.now())/1000))}:null,maximized:win?.isMaximized()||false,fullscreen:win?.isFullScreen()||false};}
+function state(){const wc=gameView?.webContents,d=display();return {...host.state,updates:updates?.state,maintenance,version:app.getVersion(),dataPath:host.data,recent:settings.recent,view,settingsOpen,gameUrl:live(wc)?wc.getURL():'',gameTitle:live(wc)?wc.getTitle():'',canGoBack:!!(live(wc)&&wc.navigationHistory.canGoBack()),canGoForward:!!(live(wc)&&wc.navigationHistory.canGoForward()),loading:view==='game'&&gameLoading,viewError:view==='game'?viewError:'',loadingTheme,preferences:{...settings.preferences},display:{width:d.workArea.width,height:d.workArea.height,screenWidth:d.bounds.width,screenHeight:d.bounds.height},displayPending:displayPending?{seconds:Math.max(0,Math.ceil((displayPending.deadline-Date.now())/1000))}:null,maximized:win?.isMaximized()||false,fullscreen:win?.isFullScreen()||false};}
 function publish(){if(!host||!win||win.isDestroyed())return;const s=state(),code=errorCode(s.viewError||s.error),source=s.viewError?'view':'host',signature=code?source+':'+code:'';if(signature&&signature!==lastDiagnosticError){recentDiagnosticErrors.push({source,code,at:new Date().toISOString()});if(recentDiagnosticErrors.length>8)recentDiagnosticErrors.shift();}lastDiagnosticError=signature;for(const wc of [win.webContents,homeView?.webContents])if(live(wc))wc.send('desktop:state',s);if(host.state.sharing==='running'&&awake===null)awake=powerSaveBlocker.start('prevent-app-suspension');if(host.state.sharing!=='running'&&awake!==null){powerSaveBlocker.stop(awake);awake=null;}}
 function visibility(force=false){const active=!!(!settingsOpen&&view==='game'&&!gameLoading&&!viewError&&!win?.isMinimized());if(live(gameView?.webContents)&&(force||gameVisible!==active)){gameVisible=active;gameView.webContents.executeJavaScript(`window.dispatchEvent(new CustomEvent('zz-desktop-visibility',{detail:{active:${active}}}))`).catch(()=>{});}}
 function layout(){if(!win||win.isDestroyed())return;const [width,height]=win.getContentSize();for(const v of [homeView,gameView])if(v){v.setBounds({x:0,y:BAR_HEIGHT,width,height:Math.max(1,height-BAR_HEIGHT)});v.setVisible(!settingsOpen&&(v===homeView?view==='home':view==='game'&&!gameLoading&&!viewError));}visibility();}
@@ -56,7 +58,7 @@ async function openGame(url){
  publish();return state();
 }
 function trusted(event,shellOnly=false){const candidates=shellOnly?[[win?.webContents,shellFile]]:[[win?.webContents,shellFile],[homeView?.webContents,homeFile]];if(!candidates.some(([wc,file])=>live(wc)&&event.sender===wc&&event.senderFrame===wc.mainFrame&&event.senderFrame.url===pathToFileURL(file).href))throw Error('Недоступное действие приложения.');}
-function handle(name,fn,shellOnly=false){ipcMain.handle('desktop:'+name,async(event,...args)=>{trusted(event,shellOnly);try{return await fn(...args);}catch(e){host.update({error:e.message});throw Error(e.message);}});}
+function handle(name,fn,shellOnly=false){ipcMain.handle('desktop:'+name,async(event,...args)=>{trusted(event,shellOnly);if(maintenance&&name!=='state')throw Error('Дождитесь завершения обслуживания приложения.');try{return await fn(...args);}catch(e){host.update({error:e.message});throw Error(e.message);}});}
 async function connect(raw){const url=connectionURL(raw);try{const r=await net.fetch(url+'api/health',{redirect:'error',signal:AbortSignal.timeout(15000)});if(!r.ok||!(await r.json()).ok)throw Error('health');}catch{throw Error('По этой ссылке игровой сервер не отвечает. Проверьте адрес и попросите Мастера оставить игру запущенной.');}await openGame(url);if(sameOrigin(gameView.webContents.getURL(),url)){settings.recent=[url,...settings.recent.filter(u=>u!==url)].slice(0,8);saveSettings();}publish();return state();}
 async function local(){await host.start();settings.port=host.port;saveSettings();return openGame(host.state.localUrl);}
 function openSettings(){settingsOpen=true;layout();publish();win.webContents.focus();return state();}
@@ -95,8 +97,45 @@ function confirmDisplay(){if(displayPending){clearPreview();if(settings.preferen
 function revertDisplay(){if(displayPending){const {previous,bounds,maximized}=displayPending;clearPreview();settings.preferences=previous;settings.bounds=bounds;applyWindow(previous.mode==='windowed'?{...previous,width:bounds.width,height:bounds.height}:previous,bounds);if(maximized&&previous.mode==='windowed')win.maximize();saveSettings();publish();}return state();}
 async function navigate(action){if(!['home','back','forward','reload','game','game-settings'].includes(action))throw Error('Неизвестный переход.');if(settingsOpen)closeSettings();if(action==='game-settings'){if(!live(gameView?.webContents))throw Error('Сначала откройте игру.');activate('game');const available=await Promise.race([gameView.webContents.executeJavaScript('Boolean(window.ZZInterfaceSettings && (window.ZZInterfaceSettings.open(), true))'),new Promise(resolve=>setTimeout(()=>resolve(false),2000))]);if(!available)throw Error('Этот сервер ещё не поддерживает общие настройки. Обновите его версию.');return state();}if(action==='home'){activate('home');return state();}if(action==='game'){if(gameView)activate('game');return state();}const wc=view==='game'?gameView?.webContents:homeView?.webContents;if(live(wc)){if(action==='reload')wc.reload();else if(view==='game'&&action==='back'&&wc.navigationHistory.canGoBack())wc.navigationHistory.goBack();else if(view==='game'&&action==='forward'&&wc.navigationHistory.canGoForward())wc.navigationHistory.goForward();}return state();}
 function windowControl(action){if(action==='minimize')win.minimize();else if(action==='maximize'){if(settings.preferences.mode==='windowed'){win.isMaximized()?win.unmaximize():win.maximize();}else applyPreferences({mode:'windowed'});}else if(action==='close')requestQuit();else throw Error('Неизвестное действие окна.');publish();return state();}
+async function requireSavedGame(){
+ if(displayPending)throw Error('Сначала подтвердите параметры экрана.');
+ if(live(gameView?.webContents)){
+  let dirty=true;try{dirty=await Promise.race([gameView.webContents.executeJavaScript('Boolean(window.zzHasUnsavedChanges && window.zzHasUnsavedChanges())'),new Promise(resolve=>setTimeout(()=>resolve(true),2000))]);}catch{}
+  if(dirty)throw Error('Сохраните или закройте открытый редактор перед обновлением или восстановлением.');
+ }
+}
+async function maintenanceOperation(work){
+ if(maintenance)throw Error('Обслуживание приложения уже выполняется.');
+ maintenance=true;publish();
+ try{return await work();}finally{maintenance=false;publish();}
+}
+function installUpdate(){return maintenanceOperation(async()=>{
+ if(!app.isPackaged)throw Error('Установка обновлений доступна в установленной Windows-версии.');
+ await requireSavedGame();await updates.installer();
+ const choice=await dialog.showMessageBox(win,{type:'question',buttons:['Позже','Создать копию и установить'],defaultId:0,cancelId:0,message:'Установить версию '+updates.entry.version+'?',detail:'Приложение закроется, свой сервер отключится от игроков. Перед установкой сохраним кампании, аккаунты и карты в резервную копию. После установки запустите игру снова.'});if(choice.response!==1)return {canceled:true};
+ let stopped=false;
+ try{
+  const backup=await host.backup(path.join(base,'update-backups')),installer=await updates.installer();
+  fs.writeFileSync(path.join(base,'last-update.json'),JSON.stringify({from:app.getVersion(),to:updates.entry.version,backup,at:new Date().toISOString()},null,2));
+  await host.stop();stopped=true;
+  const child=spawn(installer,['/S'],{detached:true,stdio:'ignore',windowsHide:true});await new Promise((resolve,reject)=>{child.once('spawn',resolve);child.once('error',reject);});child.unref();
+  quitting=true;clearTimeout(resizeTimer);for(const v of [homeView,gameView])if(live(v?.webContents))v.webContents.close();app.quit();return {installing:true};
+ }catch(e){if(stopped)await host.start().catch(()=>{});throw e;}
+});}
+function restoreGame(){return maintenanceOperation(async()=>{
+ await requireSavedGame();const selected=await dialog.showOpenDialog(win,{title:'Выберите завершённую копию с COMPLETE.json',properties:['openDirectory'],defaultPath:path.join(base,'update-backups')});if(selected.canceled)return {canceled:true};
+ const folder=selected.filePaths[0];await runRecovery(host,folder,true);
+ const choice=await dialog.showMessageBox(win,{type:'warning',buttons:['Отмена','Сохранить текущее и восстановить'],defaultId:0,cancelId:0,message:'Восстановить все локальные аккаунты и кампании?',detail:'Будет восстановлено состояние из выбранной копии. Сначала сохраним текущее состояние отдельно. Свой сервер временно отключится, ссылки приглашений придётся создать заново.'});if(choice.response!==1)return {canceled:true};
+ const previousUrl=host.state.localUrl;let stopped=false;
+ try{
+  const rescue=await host.backup(path.join(base,'update-backups'));await host.stop();stopped=true;
+  await runRecovery(host,folder);await host.start();stopped=false;settings.port=host.port;saveSettings();
+  if(live(gameView?.webContents)&&previousUrl&&sameOrigin(gameView.webContents.getURL(),previousUrl)){targetOrigin=new URL(host.state.localUrl).origin;await gameView.webContents.loadURL(host.state.localUrl);}
+  host.update({error:'',message:'Данные восстановлены. Предыдущее состояние сохранено: '+rescue});return {restored:true};
+ }catch(e){if(stopped)await host.start().catch(()=>{});throw e;}
+});}
 async function requestQuit(){
- if(quitting||exitPending)return;exitPending=true;
+ if(quitting||exitPending||maintenance)return;exitPending=true;
  try{
   let dirty=false;try{if(live(gameView?.webContents))dirty=await Promise.race([gameView.webContents.executeJavaScript('Boolean(window.zzHasUnsavedChanges && window.zzHasUnsavedChanges())'),new Promise(resolve=>setTimeout(()=>resolve(true),2000))]);}catch{}
   if(dirty&&dialog.showMessageBoxSync(win,{type:'question',buttons:['Продолжить редактирование','Выйти без сохранения'],defaultId:0,cancelId:0,message:'Есть несохранённые изменения',detail:'Несохранённые правки листа будут потеряны.'})!==1)return;
@@ -110,6 +149,7 @@ if(!app.requestSingleInstanceLock({data:base}))app.quit();else{
  app.whenReady().then(async()=>{
   const resources=app.isPackaged?process.resourcesPath:__dirname;
   host=new GameHost({resources,runtime:app.isPackaged?path.join(resources,'runtime'):path.join(__dirname,'.runtime'),data:path.join(base,'data'),port:settings.port,request:(url,options)=>net.fetch(url,options)});host.on('state',publish);
+  updates=new Updates({directory:path.join(base,'updates'),current:app.getVersion(),request:(...args)=>net.fetch(...args)});updates.on('state',publish);
   const primary=screen.getPrimaryDisplay(),stored=settings.preferences.rememberWindow?settings.bounds:null,d=stored&&Number.isFinite(stored.x)&&Number.isFinite(stored.y)?screen.getDisplayNearestPoint({x:Math.round(stored.x),y:Math.round(stored.y)}):primary;
   const bounds=fitBounds(stored||{width:settings.preferences.width,height:settings.preferences.height},d.workArea);
   win=new BrowserWindow({...bounds,minWidth:Math.min(760,d.workArea.width),minHeight:Math.min(600,d.workArea.height),frame:false,backgroundColor:'#111916',title:'Запретные Земли',show:false,icon:path.join(__dirname,'ui/app-icon.png'),webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true}});
@@ -122,6 +162,7 @@ if(!app.requestSingleInstanceLock({data:base}))app.quit();else{
   handle('backup',async()=>{await host.start();const selected=await dialog.showOpenDialog(win,{title:'Папка для резервной копии кампаний',properties:['openDirectory','createDirectory'],defaultPath:app.getPath('documents')});if(selected.canceled)return state();const folder=await host.backup(selected.filePaths[0]);host.update({message:'Резервная копия создана: '+folder,error:''});return state();});
   handle('navigate',navigate,true);handle('window',windowControl,true);handle('settings-open',openSettings,true);handle('settings-close',closeSettings,true);handle('settings-apply',applyPreferences,true);handle('display-confirm',confirmDisplay,true);handle('display-revert',revertDisplay,true);
   handle('diagnostics-save',saveDiagnostics,true);
+  handle('updates-check',()=>updates.check(),true);handle('updates-download',()=>updates.download(),true);handle('updates-install',installUpdate,true);handle('recovery-restore',restoreGame,true);handle('recovery-folder',async()=>{const folder=path.join(base,'update-backups');await fs.promises.mkdir(folder,{recursive:true});await shell.openPath(folder);return {opened:true};},true);
   Menu.setApplicationMenu(null);
   win.on('resize',()=>{layout();publish();clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{if(!applying&&!displayPending&&settings.preferences.rememberWindow&&settings.preferences.mode==='windowed'&&!win.isMaximized()&&!win.isFullScreen()){settings.bounds=win.getBounds();settings.preferences.width=settings.bounds.width;settings.preferences.height=settings.bounds.height;saveSettings();}},350);});
   win.on('move',()=>{if(!applying&&!displayPending&&settings.preferences.rememberWindow&&settings.preferences.mode==='windowed'&&!win.isMaximized()&&!win.isFullScreen()){settings.bounds=win.getBounds();saveSettings();}});

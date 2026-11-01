@@ -1,6 +1,6 @@
 import {pathRank,willpowerAvailable} from './combat-abilities.js';
 export const rank=(u,id)=>u.talents?.[id]||0;
-export function weaponTalent(u,type){return type==='shove'&&!['axe','halberd','staff'].includes(u.weapon)?null:type==='punch'?'brawler':type==='shoot'?'sharp':({sword:'sword',greatsword:'sword',axe:'axe',mace:'hammer',staff:'hammer',dagger:'knife',spear:'spear',halberd:'spear'})[u.weapon];}
+export function weaponTalent(u,type){return type==='shove'&&!['axe','halberd','staff'].includes(u.weapon)?null:type==='punch'?'brawler':type==='shoot'?(['sling','throwingknife','throwingspear'].includes(u.weapon)?'throw':'sharp'):({sword:'sword',greatsword:'sword',axe:'axe',mace:'hammer',staff:'hammer',dagger:'knife',spear:'spear',halberd:'spear'})[u.weapon];}
 export function attackTalents(u,v,type,d){
  const id=weaponTalent(u,type),n=rank(u,id),dragon=v.monster?rank(u,'dragon'):0;
  return {bonus:(n?1:0)+(dragon?1:0)+(u.prey?.target===v.id&&v.str>0&&v.agi>0&&v.wits>0&&v.emp>0?u.prey.bonus:0),damage:dragon>=2?1:0,artifacts:[...(n>=3?[{sides:8,value:d(8)}]:[]),...(dragon>=3?[{sides:8,value:d(8)}]:[])],name:id};

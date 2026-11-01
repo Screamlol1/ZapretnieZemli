@@ -4,6 +4,7 @@ import json
 import secrets
 import time
 import audio_director
+import location_advanced
 
 
 def init(db):
@@ -65,7 +66,15 @@ def apply(game,s,data):
     for key in ('id','gmKey','playerKey','identities'):restored[key]=room[key]
     if room.get('gmAccount'):restored['gmAccount']=room['gmAccount']
     for key in ('revision','combatRevision'):restored[key]=max(room.get(key,0),restored.get(key,0))+1
+    for key,field in (('codex','version'),('rulePassport','revision')):
+        target=restored.setdefault(key,dict(entries=[],relations=[]) if key=='codex' else {})
+        target[field]=max(target.get(field,0),room.get(key,{}).get(field,0))+1
+    current_holds={h['id']:h for h in room.get('strongholds',[])}
+    for hold in restored.get('strongholds',[]):
+        if hold.get('siege'):
+            hold['siege']['version']=max(hold['siege'].get('version',0),current_holds.get(hold['id'],{}).get('siege',{}).get('version',0))+1
     audio_director.restored(restored,room)
+    location_advanced.restored(restored,room)
     for kind,field in (('items','version'),('characters','equipmentVersion'),('workshop','version'),('locationMaps','version')):
         current={x['id']:x.get(field,0) for x in room.get(kind,[])}
         for x in restored.get(kind,[]):x[field]=max(x.get(field,0),current.get(x['id'],0))+1

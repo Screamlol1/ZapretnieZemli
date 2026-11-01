@@ -59,7 +59,7 @@ function setState(next){
   const pending=state.displayPending;$('display-confirm').hidden=!pending;$('settings-dialog').dataset.confirming=String(!!pending);
   if(pending){const seconds=Number(pending.seconds)||15,signature=JSON.stringify(pending);if(signature!==pendingSignature){pendingSignature=signature;pendingUntil=Date.now()+seconds*1000;}if(!oldPending)$('confirm-display').focus();updateCountdown();}else{pendingSignature='';pendingUntil=0;}
   fieldStatus();
-  renderLoadingScene();
+  renderLoadingScene();renderUpdates();
 }
 function updateCountdown(){if(state.displayPending)$('confirm-seconds').textContent=String(Math.max(0,Math.ceil((pendingUntil-Date.now())/1000)));}
 async function closeSettings(){if(busy)return;if(state.displayPending){await invoke('revertDisplay');return;}await invoke('closeSettings');}
@@ -80,3 +80,7 @@ for(const [id,method] of [['confirm-display','confirmDisplay'],['revert-display'
 document.addEventListener('keydown',event=>{if(event.ctrlKey&&event.key===','){event.preventDefault();if(!state.settingsOpen)invoke('openSettings');}});
 setInterval(updateCountdown,250);
 if(shellApi){shellApi.onState(setState);invoke('getState');}else{sceneFailure('Не удалось загрузить управление приложением. Закройте его и запустите снова.');document.querySelectorAll('button').forEach(button=>button.disabled=true);}
+
+let updateBusy=false;
+function renderUpdates(){const u=state.updates||{},working=updateBusy||state.maintenance||['checking','downloading'].includes(u.status);$('update-status').textContent=u.message||'Проверка обновлений запускается вручную.';$('update-progress').hidden=u.status!=='downloading';$('update-progress').value=u.progress||0;$('check-updates').disabled=working;$('download-update').hidden=!u.version||!['available','error'].includes(u.status);$('download-update').disabled=working;$('install-update').hidden=u.status!=='ready';$('install-update').disabled=working;for(const id of ['restore-backup','update-backups'])$(id).disabled=working;$('update-notes-box').hidden=!u.notes;$('update-notes').textContent=u.notes||'';}
+for(const [id,method] of [['check-updates','checkUpdates'],['download-update','downloadUpdate'],['install-update','installUpdate'],['update-backups','openUpdateBackups'],['restore-backup','restoreBackup']])$(id).onclick=async()=>{if(updateBusy)return;updateBusy=true;setError('');renderUpdates();const result=await invoke(method);if(method==='restoreBackup')$('recovery-status').textContent=result?.restored?'Данные восстановлены. Предыдущее состояние сохранено в папке копий.':result?.canceled?'Восстановление отменено.':'';updateBusy=false;renderUpdates();};

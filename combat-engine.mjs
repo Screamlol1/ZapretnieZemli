@@ -1,3 +1,6 @@
+import catalogWeapons from './public/weapon-profiles.json' with {type:'json'};
+import {cardCommand} from './public/card-combat.js';
+import {tacticsCommand} from './public/battle-tactics.js';
 import {injuryEffects} from './public/battle-injuries.js';
 import {doubleSlash} from './public/battle-special-actions.js';
 import {kinAbility} from './public/combat-abilities.js';
@@ -6,7 +9,7 @@ import {riskCommand} from './combat-risk.mjs';
 import {newBattle,validateBattle,startBattle,endTurn,activeUnit,moveUnit,resolveLoad,attack,simpleAction,aiTurn,castSpell,resolveMishap,BATTLE_WEAPONS} from './public/tools/battle-rules.js';
 import {inventory,ITEMS} from './public/tools/rules.js';
 import {monsterAttack} from './monster-rules.mjs';
-const weapons={broadsword:'sword',longspear:'spear',battleaxe:'axe',shortbow:'bow',lightcrossbow:'crossbow',longbow:'longbow',greatsword:'greatsword',mace:'mace',halberd:'halberd',staff:'staff',dagger:'dagger'};
+const weapons=Object.fromEntries(Object.entries(catalogWeapons).map(([k,v])=>[k,v.profile]));
 let input='';for await(const chunk of process.stdin)input+=chunk;
 try{
  const payload=JSON.parse(input);let battle;
@@ -27,7 +30,7 @@ try{
    u.armor=Math.min(u.armor,c.runtime?.armor??u.armor);u.gear=Math.min(u.gear,c.runtime?.gearBonus??u.gear);
    if(equipment){
     const e=equipment.slots,w=e.weapon,sh=e.shield,die=i=>({D8:8,D10:10,D12:12}[i?.artifactDie]||0);
-    u.weapon=w?.combatProfile||'dagger';u.weaponStats=w?{name:w.name,bonus:w.bonus,damage:w.damage}:{name:'Без оружия',bonus:0,damage:1};
+    u.weapon=w?.combatProfile||'dagger';u.weaponStats=w?{name:w.name,bonus:w.bonus,damage:w.damage,grip:w.grip,light:w.weight<=.5,...w.properties}:{name:'Без оружия',bonus:0,damage:1};
     u.gear=w?Math.max(0,w.bonus-w.wear):0;u.shield=sh?Math.max(0,sh.bonus-sh.wear):0;
     u.weaponArtifact=die(w);u.shieldArtifact=die(sh);u.equipmentIds={weapon:w?.id,shield:sh?.id};
     u.armorSources=['armor','helmet'].filter(k=>e[k]).map(k=>({id:e[k].id,current:Math.max(0,e[k].armor-e[k].wear),maximum:e[k].armor,artifact:die(e[k])}));
@@ -52,7 +55,9 @@ try{
   if(battle.phase==='combat'&&!['defense'].includes(action)){battle.roundStarted=true;if(!['kinAbility','risk'].includes(action))battle.activationStarted=true;delete battle.initiativeOffer;}
   if(activeUnit(battle)?.pendingMove&&action!=='resolveLoad')throw Error('Сначала выберите последствие перегруза.');
   if(activeUnit(battle)?.monster&&['slash','stab','shoot','punch','shove','cast','ai'].includes(action))throw Error('Чудовище использует свою таблицу атак.');
-  if(action==='start')startBattle(battle,d);
+  if(action.startsWith('card'))cardCommand(battle,c,d);
+  else if(action.startsWith('tactical')||action==='closeAction')tacticsCommand(battle,c,d);
+  else if(action==='start')startBattle(battle,d);
   else if(action==='kinAbility')kinAbility(battle,c);
   else if(action==='end')endTurn(battle);
   else if(action==='ai')aiTurn(battle,d);
@@ -69,6 +74,7 @@ try{
   });
   for(const u of battle.units)if(u.npc||u.monster)u.wp=0;
  }
- for(const u of battle.units)if(u.equipmentIds)u.equipmentWear=[...(u.equipmentIds.weapon?[{id:u.equipmentIds.weapon,maximum:u.weaponStats.bonus,current:u.gear}]:[]),...(u.equipmentIds.shield?[{id:u.equipmentIds.shield,maximum:u.shieldMaximum,current:u.shield}]:[]),...(u.armorSources||[])];
+ for(const u of battle.units)if(u.grappling){const victim=battle.units.find(v=>v.id===u.grappling);if(!victim||!u.str||!u.agi||!u.wits||!u.emp||!victim.str||!victim.agi||!victim.wits||!victim.emp){if(victim)delete victim.grappledBy;delete u.grappling;}}
+ for(const u of battle.units)if(u.equipmentIds)u.equipmentWear=[...(u.equipmentIds.weapon?[{id:u.equipmentIds.weapon,maximum:u.weaponStats.bonus,current:u.gear}]:[]),...(u.equipmentIds.shield?[{id:u.equipmentIds.shield,maximum:u.shieldMaximum,current:u.shield}]:[]),...(u.armorSources||[]),...(u.offhand?[{id:u.offhand.id,maximum:u.offhand.maximum,current:u.offhand.gear}]:[])];
  process.stdout.write(JSON.stringify(validateBattle(battle)));
 }catch(e){process.stderr.write(e.message);process.exitCode=1;}

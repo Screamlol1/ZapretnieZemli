@@ -32,3 +32,7 @@ import './inventory-repair.test.mjs';
 await import('./combat-risk.test.mjs');
 
 await import('./combat-expansion.test.mjs');
+
+await import('./card-tactics.test.mjs');
+
+await import('./appearance.test.mjs');

@@ -131,4 +131,15 @@
 .population-check{display:flex;align-items:center;gap:8px;min-height:44px}
 .population-check input{width:auto!important}
 [data-population-building]{cursor:pointer}
+.location-advanced-bar{padding:10px 0;border-block:1px solid var(--line);flex-wrap:wrap;align-items:end}
+.location-advanced-bar label{flex:1 1 180px;min-width:0}.location-advanced-bar select{max-width:100%}
+.location-advanced-dialog{width:min(780px,calc(100vw - 24px));max-height:88vh;overflow:auto}
+.location-advanced-dialog form{padding:14px 0;border-bottom:1px solid var(--line);display:grid;gap:10px}
+.location-advanced-dialog textarea{min-height:90px;max-width:100%;resize:vertical}
+.location-advanced-dialog select[multiple]{min-height:110px}
+.advanced-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:12px;margin:15px 0}
+.advanced-cards article{border:1px solid var(--line);border-radius:8px;padding:14px;background:#182d23;min-width:0;overflow-wrap:anywhere}
+.advanced-cards button{margin:5px 4px 0 0;white-space:normal}
+.location-advanced-dialog input[type=checkbox]{width:auto}
+@media(max-width:650px){.location-advanced-bar>button{flex:1 1 140px;white-space:normal}.location-advanced-dialog .location-fields{grid-template-columns:1fr 1fr}}
 @media(max-width:650px){.location-population{padding:12px}.population-filters{grid-template-columns:1fr}.population-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.population-actions button{font-size:12px;white-space:normal}.population-residents,.population-households{grid-template-columns:1fr}.population-dialog{max-width:calc(100vw - 20px)}.population-feature{margin-top:12px}}

@@ -11,5 +11,6 @@ export function tracePool(s,u,label,p,risk){
  for(const [i,g] of groups.entries())g.held=i<3?(p.held?.[['base','skill','gear'][i]]||[]):[p.held?.artifact?.[i-3]||false];
  const penalty=diceGroup('penalty',p.penalty||[],6,true);penalty.held=p.held?.penalty||[];groups.splice(3,0,penalty);
  traceDice(s,u,label,groups,scoreText(p));
+ if(risk?.sources&&s.diceEvents?.length)s.diceEvents.at(-1).sources=structuredClone(risk.sources);
  if(risk)s.riskCheck?.(u,label,p,risk);
 }

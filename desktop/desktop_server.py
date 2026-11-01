@@ -12,11 +12,14 @@ sys.path.insert(0,str(game_root))
 sys.dont_write_bytecode=True
 from server import Game, ThreadingHTTPServer, make_handler, LOCK
 from backup import snapshot
+from restore_backup import restore_incomplete
 
 
 def main():
     p=argparse.ArgumentParser();p.add_argument('--data',type=Path,required=True);p.add_argument('--port',type=int,default=8791)
     a=p.parse_args();a.data.mkdir(parents=True,exist_ok=True)
+    # A crash between swaps must never make Game create a new, empty database.
+    restore_incomplete(a.data)
     db=a.data/'campaigns.sqlite';refs=a.data/'local-assets';refs.mkdir(exist_ok=True)
     game=Game(db,reference_root=refs)
     try:http=ThreadingHTTPServer(('127.0.0.1',a.port),make_handler(game,public_test=True))

@@ -9,7 +9,7 @@ const desktopRoot=path.resolve(fileURLToPath(new URL('../../desktop/',import.met
 // This runner targets the real Windows runtime, independent of any live install.
 test('Windows settings, seamless editor and browser crossplay in one native window',async({browser},testInfo)=>{
   test.skip(process.platform!=='win32','Windows Electron and embedded-runtime test.');
-  const executable=path.join(desktopRoot,'node_modules/electron/dist/electron.exe');
+  const executable=process.env.ZZ_TEST_EXE||path.join(desktopRoot,'node_modules/electron/dist/electron.exe');
   for(const required of [executable,path.join(desktopRoot,'.runtime/python/python.exe'),path.join(desktopRoot,'.runtime/node/node.exe')]){
     try{await access(required);}catch{throw Error('Desktop prerequisites missing. Run npm --prefix desktop ci && npm --prefix desktop run prepare:runtime. Missing: '+required);}
   }
@@ -19,7 +19,7 @@ test('Windows settings, seamless editor and browser crossplay in one native wind
   async function findPage(match){await expect.poll(()=>app.context().pages().some(page=>match(page.url()))).toBe(true);return app.context().pages().find(page=>match(page.url()));}
   async function oneWindow(){expect(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().length)).toBe(1);}
   async function launch(){
-    app=await _electron.launch({executablePath:executable,args:[desktopRoot,'--zz-data-dir='+directory],env,timeout:60000});
+    app=await _electron.launch({executablePath:executable,args:[...(!process.env.ZZ_TEST_EXE?[desktopRoot]:[]),'--zz-data-dir='+directory],env,timeout:60000});
     await app.context().tracing.start({screenshots:true,snapshots:true,sources:true});
     app.context().on('page',page=>page.on('pageerror',error=>errors.push(error.message)));
     shell=await findPage(url=>url.endsWith('/shell.html'));home=await findPage(url=>url.endsWith('/ui/index.html'));await expect(home.locator('#start-local')).toBeVisible();

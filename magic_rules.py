@@ -9,16 +9,19 @@ import json
 import secrets
 from pathlib import Path
 import injuries
+import rule_passport
 from dice_events import visibility, publish, group
 from inventory_rules import text
 
 CATALOG=json.loads((Path(__file__).parent/'public'/'spell-catalog.json').read_text(encoding='utf-8'))
 SPELLS={v['id']:v for v in CATALOG['spells']}
-SCHOOLS=tuple(k for k in CATALOG['schools'] if k!='general')
+REFORGED=json.loads((Path(__file__).parent/'public'/'reforged-spell-catalog.json').read_text(encoding='utf-8'))
+ALL_SPELLS={**SPELLS,**{v['id']:v for v in REFORGED['spells']}}
+SCHOOLS=tuple(k for k in REFORGED['schools'] if k!='general')
 ATTRIBUTES=('str','agi','wit','emp')
 NAMES=dict(str='Телосложение',agi='Ловкость',wit='Разум',emp='Эмпатия')
 UNIT_ATTR=dict(str='str',agi='agi',wit='wits',emp='emp')
-PENDING={'requested','approved','ritual','rolled'}
+PENDING={'requested','reaction','approved','ritual','rolled'}
 
 def die(sides=6):return secrets.randbelow(sides)+1
 def now(room):return room.get('medicalClock',0)
@@ -36,9 +39,11 @@ def integer(v,low,high):
     if type(v)!=int or not low<=v<=high:raise ValueError('Некорректное число для заклинания.')
     return v
 def rank(c,school):
-    if c['kind']=='monster' or c['kind']=='npc' and not c['sheet'].get('npcTalentsConfigured'):return 0
+    if c['kind']=='monster' or c['kind']=='npc' and not c['sheet'].get('npcTalentsConfigured') and not c.get('runtime',{}).get('magicTraining'):return 0
     sh=c['sheet'];p=sh.get('paths',{}).copy()
     p[sh.get('path','')]=max(p.get(sh.get('path',''),0),sh.get('pathRank',0))
+    for key,value in c.get('runtime',{}).get('magicTraining',{}).items():
+        if key in SCHOOLS:p[key]=max(p.get(key,0),value.get('rank',0))
     return max((p.get(k,0) for k in (*SCHOOLS,'ice','elements')),default=0) if school=='general' else p.get(school,0)
 def pool(room,c):return room.get('magicWillpower',0) if c['kind']=='npc' else c['runtime'].get('wp',0)
 def log(room,r,message):room.setdefault('log',[]).append(dict(name='Магия',text=message,private=r.get('private',False)))
@@ -50,13 +55,14 @@ def owned_item(room,c,iid):
     return item
 def signature(room,r):
     c=character(room,r['character']);target=character(room,r['target']) if r.get('target') else None
-    def snapshot(x):return [x.get('sheet'),x.get('runtime',{}).get('current'),x.get('runtime',{}).get('wp'),x.get('runtime',{}).get('dead'),x.get('runtime',{}).get('injuries'),x.get('runtime',{}).get('magicEffects')]
+    def snapshot(x):return [x.get('sheet'),x.get('runtime',{}).get('current'),x.get('runtime',{}).get('wp'),x.get('runtime',{}).get('dead'),x.get('runtime',{}).get('injuries'),x.get('runtime',{}).get('magicEffects'),x.get('runtime',{}).get('magicTraining')]
     items=[owned_item(room,c,i) for i in (r.get('ingredientItem'),r.get('grimoire')) if i]
     b=room.get('combat',{});u=unit(room,c['id'])
-    return json.dumps([snapshot(c),snapshot(target) if target else None,items,pool(room,c),
+    return json.dumps([snapshot(c),snapshot(target) if target else None,items,pool(room,c),room.get('rulePassport',{}).get('modules'),
         [room.get('combatRevision'),b.get('id'),b.get('phase'),b.get('round'),b.get('turn'),b.get('order'),u.get('fast'),u.get('slow'),u.get('q'),u.get('r')] if u else None],sort_keys=True)
 def formula(room,r):
-    c=character(room,r['character']);sp=SPELLS[r['spell']];school=rank(c,sp['school'])
+    c=character(room,r['character']);sp=ALL_SPELLS[r['spell']];school=rank(c,sp['school'])
+    if not rule_passport.enabled(room,'advancedMagic'):school=min(3,school)
     effective=max(0,sp['rank']-int(bool(r.get('grimoire'))))
     halfelf=int(c['sheet'].get('kin')=='halfelf')
     base=r['wp']+halfelf
@@ -64,35 +70,39 @@ def formula(room,r):
     dice=max(0,base+binding-(max(0,school-effective) if r.get('safe') else 0))
     return dict(rank=school,effectiveRank=effective,halfelf=halfelf,base=base,dice=dice,cost=r['wp']+binding+int(r.get('obscure',False))+int(r.get('extend',False)),chance=effective>school)
 def check_ready(room,r):
-    c=character(room,r['character']);sp=SPELLS[r['spell']];f=formula(room,r)
+    c=character(room,r['character']);sp=ALL_SPELLS[r['spell']];f=formula(room,r);sid=sp.get('baseSpellId',sp['id'])
+    if sp.get('module') and not rule_passport.enabled(room,sp['module']):raise ValueError('Мастер должен включить модуль Reforged в паспорте правил.')
     if c['kind']=='monster':raise ValueError('Чудовища используют собственные способности.')
     injuries.check_allowed(c)
     if f['rank']<1 or f['effectiveRank']>f['rank']+1:raise ValueError('Нет нужной школы или ранг заклинания слишком высок.')
     if r.get('obscure') and rank(c,'general')<2:raise ValueError('Сокрытие требует общего магического ранга 2.')
     if r.get('bind') and (rank(c,'general')<3 or sp['action']=='ritual'):raise ValueError('Связывать можно обычные заклинания при общем магическом ранге 3.')
     if pool(room,c)<f['cost']:raise ValueError('Недостаточно силы воли для заклинания и всех дополнений.')
+    if sp.get('ingredientRequired') and not r.get('ingredient'):raise ValueError('Для этого заклинания ингредиент обязателен и не добавляет мощь.')
+    if sp.get('epic') and not r.get('epicComponents'):raise ValueError('Опишите эпические ингредиенты и их количество на каждую единицу мощности.')
+    if sp.get('combined') and not r.get('combinedWith'):raise ValueError('Укажите основное заклинание для совместного сотворения.')
     for iid in (r.get('ingredientItem'),r.get('grimoire')):
         if iid:owned_item(room,c,iid)
     if r.get('ingredientItem') and r['ingredientItem']==r.get('grimoire'):raise ValueError('Гримуар и расходуемый ингредиент должны быть разными предметами.')
     if room.get('combat',{}).get('phase')=='setup':raise ValueError('Завершите подготовку боя перед сотворением.')
     if any(room.get(k) for k in ('treatment','coldCheck','waterCheck','afflictionCheck','expeditionCheck','journeyRisk')) or room.get('combat',{}).get('pendingRisk'):raise ValueError('Сначала завершите текущую проверку.')
     if any(i.get('repair',{}).get('status')=='rolled' for i in room.get('items',[])):raise ValueError('Сначала завершите проверку ремонта.')
-    if any(x['id']!=r['id'] and x['status']=='rolled' for x in room.get('magicCastings',[])):raise ValueError('Сначала разрешите предыдущее заклинание.')
+    if not r.get('responseTo') and any(x['id']!=r['id'] and x['status']=='rolled' for x in room.get('magicCastings',[])):raise ValueError('Сначала разрешите предыдущее заклинание.')
     if in_battle(room,c):
         b=room['combat'];u=unit(room,c['id'])
         if sp['action']=='ritual' or r.get('bind'):raise ValueError('Ритуал нельзя выполнить действием в бою.')
-        if sp['id'] in ('mind_trick','stir_blood'):raise ValueError('Это заклинание не действует в бою.')
+        if sid in ('mind_trick','stir_blood'):raise ValueError('Это заклинание не действует в бою.')
         if b.get('pendingMishap') or b.get('initiativeDraw') or u.get('pendingMove'):raise ValueError('Сначала завершите текущую фазу боя.')
-        if sp['id']!='dispel' and (not b.get('order') or b['order'][b['turn']]!=c['id']):raise ValueError('Сейчас очередь другого бойца.')
-        slow=int(sp['action']=='slow');fast=int(sp['action']=='fast')+int(bool(r.get('grimoire')))+int(sp['id']=='deers_dash')
+        if sid!='dispel' and not sp.get('reaction') and (not b.get('order') or b['order'][b['turn']]!=c['id']):raise ValueError('Сейчас очередь другого бойца.')
+        slow=int(sp['action']=='slow');fast=int(sp['action']=='fast')+int(bool(r.get('grimoire')))+int(sid=='deers_dash')
         if u.get('slow',0)<slow or u.get('fast',0)+u.get('slow',0)-slow<fast:raise ValueError('Не хватает действий для заклинания, гримуара или бега.')
     target=character(room,r['target']) if r.get('target') else None
     if sp['range']=='self' and target is not c:raise ValueError('Заклинание действует только на заклинателя.')
     if sp['resolution']=='automatic' and not target:raise ValueError('Для автоматического эффекта выберите цель.')
     if target and sp['noMonsters'] and target['kind']=='monster':raise ValueError('Заклинание не действует на чудовищ.')
-    if target is c and sp['id'] in ('cleanse_spirit','healing_hands'):raise ValueError('Это исцеление нельзя применить к себе.')
-    if sp['id'] in ('cleanse_spirit','healing_hands'):
-        allowed=('wit','emp') if sp['id']=='cleanse_spirit' else ('str','agi')
+    if target is c and sid in ('cleanse_spirit','healing_hands'):raise ValueError('Это исцеление нельзя применить к себе.')
+    if sid in ('cleanse_spirit','healing_hands'):
+        allowed=('wit','emp') if sid=='cleanse_spirit' else ('str','agi')
         if r.get('attribute') not in allowed:raise ValueError('Выберите подходящую характеристику для исцеления.')
     return f
 
@@ -147,7 +157,7 @@ def armor_save(room,target,power,private):
     if groups:publish(room,target['name'],'Броня против магии',groups,f'Поглощено: {stopped}.',private)
     return stopped
 def automatic_effect(room,r):
-    sp=SPELLS[r['spell']];c=character(room,r['character']);target=character(room,r['target']);power=r['power']
+    sp=ALL_SPELLS[r['spell']];sp=SPELLS.get(sp.get('baseSpellId'),sp);c=character(room,r['character']);target=character(room,r['target']);power=r['power']
     seals=[e['power'] for e in target.get('runtime',{}).get('magicEffects',[]) if e['kind']=='seal']
     if seals and r['spell']!='seal':
         power=max(0,power-max(seals));r['sealReduction']=r['power']-power
@@ -195,8 +205,8 @@ def apply_mishap(room,r):
     # Other results are recorded and explicitly adjudicated by the GM. Never
     # silently pick an unintended target, kill a character, or create a demon.
 
-def finish_cast(room,r):
-    c=character(room,r['character']);sp=SPELLS[r['spell']];f=check_ready(room,r)
+def finish_cast(room,r,deferred=False):
+    c=character(room,r['character']);sp=ALL_SPELLS[r['spell']];f=check_ready(room,r)
     if c['kind']=='npc':room['magicWillpower']=pool(room,c)-f['cost']
     else:c['runtime']['wp']=pool(room,c)-f['cost']
     if r.get('ingredientItem') and not sp['reusable']:
@@ -207,14 +217,14 @@ def finish_cast(room,r):
     if in_battle(room,c):
         b=room['combat'];u=unit(room,c['id'])
         if sp['action']=='slow':u['slow']-=1
-        for _ in range(int(sp['action']=='fast')+int(bool(r.get('grimoire')))+int(sp['id']=='deers_dash')):
+        for _ in range(int(sp['action']=='fast')+int(bool(r.get('grimoire')))+int(sp.get('baseSpellId',sp['id'])=='deers_dash')):
             if u['fast']:u['fast']-=1
             else:u['slow']-=1
         b['roundStarted']=True
         if b.get('order') and b['order'][b['turn']]==c['id']:b['activationStarted']=True
         b.pop('initiativeOffer',None)
     values=[die() for _ in range(f['dice'])]
-    r.update(status='rolled',formula=f,dice=values,power=f['base']+values.count(6)+int(r['ingredient']),castAt=now(room))
+    r.update(status='rolled',formula=f,dice=values,power=f['base']+values.count(6)+int(r['ingredient'] and sp.get('ingredientBonus',True)),castAt=now(room))
     if 1 in values or f['chance']:r['mishap']=roll_mishap()
     groups=[group('magic',values)]
     if r.get('mishap'):groups.append(group('table',r['mishap']['dice']))
@@ -223,10 +233,65 @@ def finish_cast(room,r):
     r['event']=publish(room,c['name'],'Сотворение заклинания',groups,message,r['private'])
     c['runtime'].setdefault('castSpells',[])
     if sp['id'] not in c['runtime']['castSpells']:c['runtime']['castSpells'].append(sp['id'])
-    if sp['resolution']=='automatic' and not r.get('mishap') and not r.get('bind'):
+    if not deferred and sp['resolution']=='automatic' and not r.get('mishap') and not r.get('bind'):
         r['result']=automatic_effect(room,r);r['status']='resolved';log(room,r,r['result'])
     else:r['result']='Нужен вердикт Мастера: '+(r.get('mishap',{}).get('description') or sp['summary'])
     sync_battle(room)
+
+def reaction_choice(room,s,r,data):
+    if r['status']!='reaction':raise ValueError('Окно ответной магии уже закрыто.')
+    response=next((x for x in r.get('reactions',[]) if x['character']==data.get('character')),None)
+    if not response or response['status']!='offered':raise ValueError('Ответ уже зафиксирован или этот персонаж не приглашён.')
+    c=character(room,response['character'])
+    if not controls(c,s) or r['private'] and s['role']!='gm':raise PermissionError('Ответ выбирает владелец приглашённого мага.')
+    if data.get('pass') is True:response['status']='passed'
+    else:
+        ingredient_item=text(data.get('ingredientItem',''),100);ingredient_scene=text(data.get('ingredientScene',''),200)
+        if ingredient_item and ingredient_scene:raise ValueError('Выберите один источник ингредиента.')
+        choice=dict(id=secrets.token_hex(12),character=c['id'],target='',spell='dispel',status='ready',wp=integer(data.get('wp'),1,1000 if c['kind']=='npc' else 10),safe=data.get('safe') is True,bind=0,obscure=False,extend=False,grimoire=text(data.get('grimoire',''),100),ingredientItem=ingredient_item,ingredientScene=ingredient_scene,ingredient=bool(ingredient_item or ingredient_scene),attribute='str',private=r['private'],note='Ответное рассеивание.',responseTo=r['id'])
+        check_ready(room,choice);choice['signature']=signature(room,choice);response.clear();response.update(choice)
+    if all(x['status']!='offered' for x in r['reactions']):r['status']='approved'
+
+def finish_with_reactions(room,r):
+    responses=[x for x in r.get('reactions',[]) if x['status']=='ready']
+    if not responses:return finish_cast(room,r)
+    # Validate every cost, inventory and action before consuming anything.
+    npc_cost=0
+    for x in [r,*responses]:
+        f=check_ready(room,x)
+        if signature(room,x)!=x.get('signature'):raise ValueError('Условия ответной магии изменились. Отмените заявку и согласуйте её заново.')
+        if character(room,x['character'])['kind']=='npc':npc_cost+=f['cost']
+    if npc_cost>room.get('magicWillpower',0):raise ValueError('Общего запаса ПВ не хватает на исходную магию и все ответы.')
+    finish_cast(room,r,deferred=True)
+    for response in responses:finish_cast(room,response,deferred=True)
+    r['rawPower']=r['power'];r['counterPower']=sum(x['power'] for x in responses);r['power']=max(0,r['rawPower']-r['counterPower'])
+    r['result']=f'Исходная мощь {r["rawPower"]}; рассеивание {r["counterPower"]}; осталось {r["power"]}.'
+    uncertain=any(x.get('mishap') for x in [r,*responses])
+    if not uncertain and not r['power']:r['status']='resolved';r['result']+=' Основной эффект рассеян; затраты сохраняются.'
+    elif not uncertain and ALL_SPELLS[r['spell']]['resolution']=='automatic' and not r.get('bind'):
+        r['result']+=' '+automatic_effect(room,r);r['status']='resolved'
+    else:r['result']+=' Требуется вердикт Мастера, включая осечки всех участников.'
+    log(room,r,r['result'])
+
+def parse_durable_effects(room,r,values):
+    if not isinstance(values,list) or len(values)>20:raise ValueError('Слишком много длительных эффектов.')
+    parsed=[]
+    for v in values:
+        if not isinstance(v,dict):raise ValueError('Неверный длительный эффект.')
+        c=character(room,v.get('character'));note=text(v.get('note',''),1000);unit_name=v.get('unit');duration=v.get('duration',1)
+        if c.get('hidden') and not r['private']:raise ValueError('Скрытые эффекты требуют скрытого сотворения.')
+        if not note or unit_name not in ('minutes','quarters','rounds','permanent','session'):raise ValueError('Укажите эффект и способ отсчёта срока.')
+        opts=dict(note=note,casting=r['id'],durationUnit=unit_name,concentration=v.get('concentration') is True)
+        if unit_name in ('minutes','quarters','rounds'):
+            integer(duration,1,525600)
+            if unit_name=='minutes':opts['until']=now(room)+duration
+            if unit_name=='quarters':opts['untilQuarter']=quarter(room)+duration
+            if unit_name=='rounds':
+                b=room.get('combat',{})
+                if b.get('phase')!='combat':raise ValueError('Срок в раундах требует действующего боя; вне боя выберите минуты.')
+                opts.update(combat=b.get('id'),untilRound=b.get('round',1)+duration)
+        parsed.append((c,opts))
+    return parsed
 
 def apply(room,s,data):
     op=data.get('op');casts=room.setdefault('magicCastings',[])
@@ -235,10 +300,11 @@ def apply(room,s,data):
     if op=='declare':
         c=character(room,data.get('character'))
         if not controls(c,s):raise PermissionError('Вы можете заявлять магию только своего персонажа.')
-        sp=SPELLS.get(data.get('spell'))
+        sp=ALL_SPELLS.get(data.get('spell'))
         if not sp:raise ValueError('Выберите заклинание из каталога.')
-        if sp['id'] in ('obscure','bind_magic'):raise ValueError('Выберите основное заклинание и включите сокрытие/связывание в его параметрах.')
+        if sp.get('baseSpellId',sp['id']) in ('obscure','bind_magic'):raise ValueError('Выберите основное заклинание и включите сокрытие/связывание в его параметрах.')
         if any(r['character']==c['id'] and r['status'] in PENDING for r in casts):raise ValueError('Сначала завершите или отмените текущую магию этого персонажа.')
+        if any(r['status'] in ('reaction','approved') and any(x['character']==c['id'] and x['status'] in ('offered','ready') for x in r.get('reactions',[])) for r in casts):raise ValueError('Сначала завершите ответ на уже объявленное заклинание.')
         private=visibility(s,data) or bool(c.get('hidden'))
         target=data.get('target','')
         if sp['range']=='self':target=c['id']
@@ -255,8 +321,10 @@ def apply(room,s,data):
         r=dict(id=secrets.token_hex(12),character=c['id'],target=target,spell=sp['id'],status='requested',note=note,wp=wp,
             safe=data.get('safe') is True,bind=binding,obscure=data.get('obscure') is True,extend=data.get('extend') is True,
             grimoire=text(data.get('grimoire',''),100),ingredientItem=ingredient_item,ingredientScene=ingredient_scene,
-            ingredient=bool(ingredient_item or ingredient_scene),attribute=data.get('attribute','str'),private=private,created=now(room))
-        if r['extend'] and sp['id']!='hand_doom':raise ValueError('Продление дистанции этой опцией доступно только «Руке рока».')
+            ingredient=bool(ingredient_item or ingredient_scene),attribute=data.get('attribute','str'),private=private,created=now(room),
+            epicComponents=text(data.get('epicComponents',''),800),combinedWith=text(data.get('combinedWith',''),100))
+        if r['combinedWith'] and (r['combinedWith'] not in ALL_SPELLS or r['combinedWith']==r['spell']):raise ValueError('Выберите другое основное заклинание из каталога.')
+        if r['extend'] and sp.get('baseSpellId',sp['id'])!='hand_doom':raise ValueError('Продление дистанции этой опцией доступно только «Руке рока».')
         if len([x for x in casts if x['status'] in PENDING])>=20:raise ValueError('Сначала завершите ожидающие заклинания.')
         check_ready(room,r);r['signature']=signature(room,r)
         room['magicCastings']=([x for x in casts if x['status'] in PENDING]+[x for x in casts if x['status'] not in PENDING][-60:]+[r])
@@ -270,27 +338,40 @@ def apply(room,s,data):
         u=unit(room,c['id'])
         if u and e['kind']=='burning':u['burning']=False
         if u and e['kind']=='fireproof':u['fireproof']=False
-        log(room,e,f'{c["name"]}: {SPELLS[e["spell"]]["name"]} завершено. {note}');sync_battle(room);return
+        log(room,e,f'{c["name"]}: {ALL_SPELLS[e["spell"]]["name"]} завершено. {note}');sync_battle(room);return
     r=next((r for r in casts if r['id']==data.get('casting')),None)
     if not r:raise ValueError('Заявка заклинания не найдена.')
+    if op=='react':return reaction_choice(room,s,r,data)
     c=character(room,r['character'])
     if not controls(c,s) or r['private'] and s['role']!='gm':raise PermissionError('Эта магия управляется другим участником.')
     if op=='cancel':
-        if r['status'] not in ('requested','approved','ritual'):raise ValueError('Состоявшийся бросок нельзя отменить или повторить.')
+        if r['status'] not in ('requested','reaction','approved','ritual'):raise ValueError('Состоявшийся бросок нельзя отменить или повторить.')
         r['status']='cancelled';log(room,r,f'{c["name"]}: заявка заклинания отменена.');return
     if op=='approve':
         gm(s)
         if r['status']!='requested':raise ValueError('Заявка уже обработана.')
         if data.get('confirmed') is not True:raise ValueError('Подтвердите дистанцию, видимость, допустимость цели и подготовку ингредиента/гримуара.')
-        check_ready(room,r);r['status']='approved';r['signature']=signature(room,r);return
+        check_ready(room,r)
+        reactors=data.get('reactors',[])
+        if not isinstance(reactors,list) or len(reactors)>10 or len(set(reactors))!=len(reactors):raise ValueError('Выберите до десяти разных отвечающих магов.')
+        if reactors and (not rule_passport.enabled(room,'magicReactions') or ALL_SPELLS[r['spell']]['action']=='ritual' or r.get('bind')):raise ValueError('Реакции доступны для обычного сотворения при включённом модуле.')
+        if ALL_SPELLS[r['spell']].get('epic') and data.get('epicConfirmed') is not True:raise ValueError('Отдельно подтвердите количество и допустимость эпических ингредиентов; их расход фиксируется вердиктом.')
+        r['reactions']=[]
+        for cid in reactors:
+            other=character(room,cid)
+            if cid==c['id'] or rank(other,'general')<1 or other['kind']=='monster':raise ValueError('Ответ должен исходить от другого владеющего магией персонажа.')
+            if other.get('hidden') and not r['private']:raise ValueError('Скрытый маг не может быть раскрыт открытым окном реакции.')
+            if any(x['character']==cid and x['status'] in PENDING for x in casts):raise ValueError('У отвечающего уже есть незавершённая магия.')
+            r['reactions'].append(dict(character=cid,status='offered'))
+        r['status']='reaction' if reactors else 'approved';r['signature']=signature(room,r);return
     if op=='cast':
         if r['status']!='approved':raise ValueError('Сначала требуется подтверждение Мастера; повторный бросок недоступен.')
         check_ready(room,r)
         if signature(room,r)!=r['signature']:raise ValueError('Персонаж, цель, предметы или очередь изменились. Отмените заявку и подайте заново.')
-        if SPELLS[r['spell']]['action']=='ritual' or r.get('bind'):
+        if ALL_SPELLS[r['spell']]['action']=='ritual' or r.get('bind'):
             r.update(status='ritual',started=now(room),due=now(room)+360)
             log(room,r,f'{c["name"]} начинает ритуал: нужна четверть суток игрового времени без помех.');return
-        finish_cast(room,r);return
+        finish_with_reactions(room,r);return
     if op=='finish_ritual':
         gm(s)
         if r['status']!='ritual' or now(room)<r['due']:raise ValueError('Ритуал ещё не завершён по игровому времени.')
@@ -303,8 +384,8 @@ def apply(room,s,data):
         if not note:raise ValueError('Запишите конкретные последствия заклинания и осечки, если она была.')
         mode=data.get('mode','manual')
         if mode not in ('manual','apply','cancel_effect'):raise ValueError('Выберите способ разрешения эффекта.')
-        sp=SPELLS[r['spell']]
-        if mode=='apply' and (sp['resolution']!='automatic' or r.get('bind') or r.get('mishap',{}).get('value',0)>=62):raise ValueError('Для этого случая нужен ручной вердикт, а не обычный автоматический эффект.')
+        sp=ALL_SPELLS[r['spell']]
+        if mode=='apply' and (sp['resolution']!='automatic' or r.get('bind') or any(x.get('mishap',{}).get('value',0)>=62 for x in [r,*r.get('reactions',[])])):raise ValueError('Для этого случая нужен ручной вердикт, а не обычный автоматический эффект.')
         changes=data.get('changes',[])
         if not isinstance(changes,list) or len(changes)>20:raise ValueError('Слишком много последствий.')
         parsed=[]
@@ -314,11 +395,15 @@ def apply(room,s,data):
             if target['kind']=='monster' and change['attribute'] in ('wit','emp'):raise ValueError('Чудовище не имеет Разума/Эмпатии для этого эффекта.')
             if target.get('hidden') and not r['private']:raise ValueError('Скрытые цели разрешайте отдельным скрытым решением.')
             parsed.append((target,change['attribute'],amount))
-        if r.get('mishap'):apply_mishap(room,r)
+        durations=parse_durable_effects(room,r,data.get('effects',[]))
+        if mode=='cancel_effect' and durations:raise ValueError('При отменённом эффекте нельзя создать длительное воздействие.')
+        for x in [r,*r.get('reactions',[])]:
+            if x.get('mishap'):apply_mishap(room,x)
         if mode=='apply':r['result']=automatic_effect(room,r)
         elif mode=='cancel_effect':r['result']='Мастер отменил основной эффект; затраты и осечка сохраняются.'
         else:r['result']='Последствия разрешены Мастером.'
         for target,attribute,amount in parsed:change_attribute(room,target,attribute,amount)
+        for target,values in durations:effect(room,target,r,'adjudicated',**values)
         r.update(status='resolved',verdict=note,changes=copy.deepcopy(changes));log(room,r,r['result']+' '+note);sync_battle(room);return
     raise ValueError('Неизвестная команда магии.')
 
@@ -330,7 +415,16 @@ def reconcile(room):
     """
     for c in room.get('characters',[]):
         effects=c.get('runtime',{}).get('magicEffects',[])
-        remaining=[e for e in effects if not ('until' in e and now(room)>=e['until'] or 'untilQuarter' in e and quarter(room)>=e['untilQuarter'])]
+        def expired(e):
+            if 'until' in e and now(room)>=e['until'] or 'untilQuarter' in e and quarter(room)>=e['untilQuarter']:return True
+            if 'untilRound' in e:
+                b=room.get('combat',{})
+                if b.get('id')!=e.get('combat') or b.get('phase')!='combat' or b.get('round',0)>=e['untilRound']:return True
+            if e.get('concentration'):
+                source=next((v for v in room['characters'] if v['id']==e.get('source')),None)
+                if not source or source.get('runtime',{}).get('dead') or any(v<=0 for v in source.get('runtime',{}).get('current',{}).values()):return True
+            return False
+        remaining=[e for e in effects if not expired(e)]
         if len(effects)!=len(remaining):
             c['runtime']['magicEffects']=remaining
             u=unit(room,c['id'])
@@ -339,21 +433,29 @@ def reconcile(room):
         if u and room.get('combat',{}).get('phase')=='combat' and not u.get('burning'):
             c['runtime']['magicEffects']=[e for e in remaining if e['kind']!='burning']
 def guard(room,s,data):
-    if any(r['status']=='rolled' for r in room.get('magicCastings',[])) and data.get('action') not in ('magic','chat','roll'):
+    if any(r['status'] in ('rolled','reaction') or r['status']=='approved' and r.get('reactions') for r in room.get('magicCastings',[])) and data.get('action') not in ('magic','chat','roll','campaignCodex'):
         raise ValueError('Сначала Мастер должен разрешить заклинание и его последствия в разделе «Магия».')
 def project(room,s):
     visible=[]
     for r in room.get('magicCastings',[]):
         if r.get('private') and s['role']!='gm':continue
-        if r['status'] in ('requested','approved','ritual'):
+        if r['status'] in ('requested','reaction','approved','ritual'):
             try:r['formula']=formula(room,r);r['current']=r['status']=='ritual' or signature(room,r)==r.get('signature')
             except (ValueError,KeyError):r['current']=False
         r.pop('signature',None)
+        unrolled=r['status'] in ('requested','reaction','approved','ritual') and rule_passport.enabled(room,'magicReactions')
+        if unrolled and s['role']!='gm' and not controls(character(room,r['character']),s):
+            for key in ('wp','formula','safe','bind','obscure','extend','ingredient','ingredientItem','ingredientScene','grimoire','epicComponents'):r.pop(key,None)
+        for response in r.get('reactions',[]):
+            response.pop('signature',None)
+            if unrolled and s['role']!='gm' and not controls(character(room,response['character']),s):
+                for key in list(response):
+                    if key not in ('character','status'):response.pop(key,None)
         visible.append(r)
     room['magicCastings']=visible
     if s['role']!='gm':room.pop('magicWillpower',None)
     for c in room.get('characters',[]):
-        if c['kind']!='monster':c.setdefault('runtime',{})['magicRanks']={k:rank(c,k) for k in CATALOG['schools']}
+        if c['kind']!='monster':c.setdefault('runtime',{})['magicRanks']={k:min(rank(c,k),5 if rule_passport.enabled(room,'advancedMagic') else 3) for k in REFORGED['schools']}
         if s['role']!='gm' and c.get('runtime',{}).get('magicEffects'):
             c['runtime']['magicEffects']=[e for e in c['runtime']['magicEffects'] if not e.get('private')]
 
@@ -362,7 +464,7 @@ def restored(room):
     for r in room.get('magicCastings',[]):
         if r['status'] in PENDING:
             r['id']=secrets.token_hex(12)
-            if r['status']=='approved':r['status']='requested'
+            if r['status'] in ('approved','reaction'):r['status']='requested';r.pop('reactions',None)
             if r['status']=='requested':
                 try:r['signature']=signature(room,r)
                 except (ValueError,KeyError):r.pop('signature',None)

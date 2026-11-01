@@ -1,5 +1,8 @@
 """Owned equipment, persistent wear and load. PH pp. 37–38, 50, 88."""
-PROFILES={'broadsword':'sword','longspear':'spear','battleaxe':'axe','shortbow':'bow','lightcrossbow':'crossbow','longbow':'longbow','greatsword':'greatsword','mace':'mace','halberd':'halberd','staff':'staff','dagger':'dagger'}
+import json
+from pathlib import Path
+CATALOG_PROPERTIES=json.loads((Path(__file__).parent/'public'/'weapon-profiles.json').read_text(encoding='utf-8'))
+PROFILES={key:value['profile'] for key,value in CATALOG_PROPERTIES.items()}
 WEAPONS=set(PROFILES.values())
 SLOTS=('weapon','armor','helmet','shield')
 
@@ -56,7 +59,7 @@ def combat_gear(room,c):
     prepare(room,c)
     items={i['id']:i for i in owned(room,c['id'])}
     eq={k:items[v] for k,v in c['equipment'].items() if v in items}
-    return dict(slots={k:{key:i[key] for key in ('id','name','bonus','damage','armor','wear','combatProfile','artifactDie','grip') if key in i} for k,i in eq.items()},load=load(room,c))
+    return dict(slots={k:{**{key:i[key] for key in ('id','name','bonus','damage','armor','wear','combatProfile','artifactDie','grip','weight') if key in i},'properties':weapon_properties(i)} for k,i in eq.items()},load=load(room,c))
 
 def sync_wear(room,battle):
     items={i['id']:i for i in room.get('items',[])}
@@ -66,3 +69,8 @@ def sync_wear(room,battle):
             if not i or i['location']!=dict(kind='character',id=u['id']):continue
             value=max(i.get('wear',0),source['maximum']-source['current'])
             if value!=i.get('wear',0):i['wear']=value;i['version']+=1
+
+
+def weapon_properties(item):
+    row=CATALOG_PROPERTIES.get(item.get('catalogId'))
+    return {k:v for k,v in row.items() if k!='profile'} if row and row['profile']==item.get('combatProfile') else {}

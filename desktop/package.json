@@ -1,6 +1,6 @@
 {
   "name": "zapretnie-zemli-desktop",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Запретные Земли — общий игровой стол для Windows",
   "author": "Screamlol1",
   "private": true,
@@ -24,16 +24,51 @@
     "executableName": "ZapretnieZemli",
     "artifactName": "ZapretnieZemli-Setup-${version}-${arch}.${ext}",
     "asar": true,
-    "directories": {"output": "../../outputs/windows", "buildResources": "build"},
-    "files": ["main.cjs", "host.cjs", "preload.cjs", "policy.cjs", "preferences.cjs", "diagnostics.cjs", "ui/**/*", "package.json"],
-    "extraResources": [
-      {"from": ".stage/game", "to": "game"},
-      {"from": ".runtime", "to": "runtime"},
-      {"from": "desktop_server.py", "to": "desktop_server.py"},
-      {"from": "THIRD-PARTY.md", "to": "THIRD-PARTY.md"},
-      {"from": "runtime-lock.json", "to": "runtime-lock.json"}
+    "directories": {
+      "output": "../../outputs/windows",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.cjs",
+      "host.cjs",
+      "preload.cjs",
+      "policy.cjs",
+      "preferences.cjs",
+      "diagnostics.cjs",
+      "ui/**/*",
+      "package.json",
+      "updates.cjs",
+      "recovery.cjs"
     ],
-    "win": {"target": ["nsis"], "icon": "ui/app.ico", "signAndEditExecutable": true},
+    "extraResources": [
+      {
+        "from": ".stage/game",
+        "to": "game"
+      },
+      {
+        "from": ".runtime",
+        "to": "runtime"
+      },
+      {
+        "from": "desktop_server.py",
+        "to": "desktop_server.py"
+      },
+      {
+        "from": "THIRD-PARTY.md",
+        "to": "THIRD-PARTY.md"
+      },
+      {
+        "from": "runtime-lock.json",
+        "to": "runtime-lock.json"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "ui/app.ico",
+      "signAndEditExecutable": true
+    },
     "nsis": {
       "oneClick": false,
       "perMachine": false,
@@ -44,7 +79,10 @@
       "shortcutName": "Запретные Земли",
       "deleteAppDataOnUninstall": false,
       "runAfterFinish": true,
-      "installerLanguages": ["ru_RU", "en_US"],
+      "installerLanguages": [
+        "ru_RU",
+        "en_US"
+      ],
       "language": "1049"
     }
   }

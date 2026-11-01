@@ -51,6 +51,7 @@
         <button type="button" role="tab" id="tab-display" aria-selected="true" aria-controls="panel-display" data-tab="display"><svg><use href="#i-screen"/></svg>Экран</button>
         <button type="button" role="tab" id="tab-behavior" aria-selected="false" aria-controls="panel-behavior" tabindex="-1" data-tab="behavior"><svg><use href="#i-sliders"/></svg>Поведение</button>
         <button type="button" role="tab" id="tab-shortcuts" aria-selected="false" aria-controls="panel-shortcuts" tabindex="-1" data-tab="shortcuts"><svg><use href="#i-keyboard"/></svg>Клавиши</button>
+        <button type="button" role="tab" id="tab-updates" aria-selected="false" aria-controls="panel-updates" tabindex="-1" data-tab="updates"><svg><use href="#i-sliders"/></svg>Обновления</button>
         <button type="button" role="tab" id="tab-diagnostics" aria-selected="false" aria-controls="panel-diagnostics" tabindex="-1" data-tab="diagnostics"><svg><use href="#i-sliders"/></svg>Диагностика</button>
         <div class="settings-note"><span class="note-sigil">✦</span><p>Настройки экрана действуют только на этом компьютере.</p></div>
       </nav>
@@ -76,6 +77,16 @@
           <h2>Быстрые действия</h2>
           <dl class="shortcuts"><div><dt>Полный экран / вернуться в окно</dt><dd><kbd>F11</kbd><span>или</span><kbd>Alt</kbd> + <kbd>Enter</kbd></dd></div><div><dt>Настройки приложения</dt><dd><kbd>Ctrl</kbd> + <kbd>,</kbd></dd></div><div><dt>Назад / вперёд</dt><dd><kbd>Alt</kbd> + <kbd>←</kbd> / <kbd>→</kbd></dd></div><div><dt>Обновить страницу</dt><dd><kbd>Ctrl</kbd> + <kbd>R</kbd></dd></div><div><dt>Закрыть настройки или отменить смену экрана</dt><dd><kbd>Esc</kbd></dd></div></dl>
           <p class="field-help">Изменение режима не прерывает кампанию. При смене экрана можно вернуть предыдущие параметры.</p>
+        </section>
+        <section id="panel-updates" role="tabpanel" aria-labelledby="tab-updates" tabindex="0" hidden>
+          <h2>Обновления и восстановление</h2>
+          <p>Проверить и загрузить новую версию можно во время игры. Установка закроет приложение и свой сервер после создания резервной копии.</p>
+          <p id="update-status" role="status" aria-live="polite"></p><progress id="update-progress" max="100" value="0" hidden></progress>
+          <div class="update-actions"><button type="button" id="check-updates">Проверить обновления</button><button type="button" id="download-update" hidden>Загрузить</button><button type="button" id="install-update" class="primary" hidden>Установить</button></div>
+          <details id="update-notes-box" hidden><summary>Что изменилось</summary><pre id="update-notes"></pre></details>
+          <hr><h3>Резервные копии</h3><p>Копия содержит все локальные аккаунты, кампании и загруженные карты. Восстановление заменяет их состояние; перед заменой сохраняется ещё одна копия текущих данных.</p>
+          <div class="update-actions"><button type="button" id="update-backups">Открыть копии</button><button type="button" id="restore-backup">Восстановить из копии…</button></div><p id="recovery-status" role="status" aria-live="polite"></p>
+          <p class="field-help">Проверка обращается только к публичным выпускам проекта на GitHub. Установщик проверяется по размеру и SHA-256. Автоматической установки во время игры нет.</p>
         </section>
         <section id="panel-diagnostics" role="tabpanel" aria-labelledby="tab-diagnostics" tabindex="0" hidden>
           <h2>Отчёт для разбора неполадок</h2>

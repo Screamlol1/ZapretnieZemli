@@ -162,6 +162,11 @@ def apply(room, session, data):
             # Generated feature IDs start again at f1; old homes must not attach
             # silently to unrelated buildings after replacing the plan.
             detach_population(saved['population'])
+        if old and old.get('level'):
+            saved['level']=copy.deepcopy(old['level'])
+            for other in maps:
+                if other['id']!=old['id'] and any(st['targetMap']==old['id'] for st in other.get('stairs',[])):
+                    other['stairs']=[st for st in other['stairs'] if st['targetMap']!=old['id']];other['version']+=1
         room['locationMaps']=[m for m in maps if m['id']!=saved['id']]+[saved]
         room.get('locationHistory',{}).pop(saved['id'],None)
         if parent:
@@ -201,10 +206,14 @@ def apply(room, session, data):
             if f.get('points'):f['points']=[[x+(px-f['x'])*fw/f['w'],y+(py-f['y'])*fh/f['h']] for px,py in f['points']]
             f.update(x=x,y=y,w=fw,h=fh)
             feature_bounds(m,f)
-        f.update(label=text(data.get('label','')),note=text(data.get('note',''),1200),gmNote=text(data.get('gmNote',''),1200),secret=data['secret'],art=art)
+        if 'blocksSight' in data and type(data['blocksSight']) is not bool:raise ValueError('Укажите, перекрывает ли объект обзор.')
+        f.update(label=text(data.get('label','')),note=text(data.get('note',''),1200),gmNote=text(data.get('gmNote',''),1200),secret=data['secret'],art=art,blocksSight=data.get('blocksSight',f.get('blocksSight',False)))
     elif action=='locationMapDelete':
         if data.get('confirmed') is not True:raise ValueError('Подтвердите удаление карты.')
         room['locationMaps']=[x for x in maps if x['id']!=m['id']]
+        for other in room['locationMaps']:
+            if any(st['targetMap']==m['id'] for st in other.get('stairs',[])):
+                other['stairs']=[st for st in other['stairs'] if st['targetMap']!=m['id']];other['version']+=1
         room.get('locationHistory',{}).pop(m['id'],None)
         for cell in room['maps']['world'].values():
             if cell.get('locationMapId')==m['id']:cell.pop('locationMapId')
@@ -220,7 +229,7 @@ def publish_workshop_map(room, entry, cell, p):
         m=find(room,entry['locationMapId']);m['source']=dict(kind='hex',**p);m['version']+=1
         cell['locationMapId']=m['id']
 
-def redact(room):
+def redact(room, session=None, preview=False):
     room.pop('locationHistory',None)
     visible=[]
     for m in room.get('locationMaps',[]):
@@ -228,7 +237,11 @@ def redact(room):
         if m['source']['kind']=='hex':
             cell=room['maps']['world'].get(f"{m['source']['x']},{m['source']['y']}",{})
             if cell.get('hidden') or cell.get('siteHidden') or cell.get('locationMapId')!=m['id']:continue
+        if m.get('vision',{}).get('enabled'):
+            from location_vision import filter_map
+            m=filter_map(room,m,session or dict(role='player',owner=''))
         safe=copy.deepcopy(m);safe.pop('settings',None) # Seed could reconstruct secret rooms.
+        safe.pop('visionPreview',None)
         safe.pop('undoCount',None)
         from exploration import visible_ids, visible_point, public_state
         ids=visible_ids(m)
@@ -242,7 +255,16 @@ def redact(room):
         if exploring:
             safe['river']=[]
             safe['trees']=[tree for tree in safe.get('trees',[]) if visible_point(m,tree[0],tree[1])]
+        safe['stairs']=[{k:v for k,v in st.items() if k in ('id','name','targetMap','targetStair','x','y','revealed')} for st in m.get('stairs',[]) if st.get('revealed') and visible_point(m,st['x'],st['y'])]
         visible.append(safe)
     room['locationMaps']=visible;ids={m['id'] for m in visible}
+    room.pop('locationObservers',None)
+    linked_ids=ids|set(room.pop('_previewVisibleMaps',[])) if preview else ids
+    for m in visible:m['stairs']=[st for st in m.get('stairs',[]) if st['targetMap'] in linked_ids]
+    if room.get('residentServices'):
+        allowed={(m['id'],r['id']) for m in visible for r in m.get('population',{}).get('residents',[])}
+        services=room['residentServices']
+        for key in ('offers','relations'):services[key]=[x for x in services.get(key,[]) if (x['map'],x['resident']) in allowed]
+        services['contracts']=[x for x in services.get('contracts',[]) if (x['quote']['map'],x['quote']['resident']) in allowed]
     for cell in room['maps']['world'].values():
         if cell.get('locationMapId') not in ids:cell.pop('locationMapId',None)

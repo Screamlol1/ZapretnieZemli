@@ -1,3 +1,11 @@
+from visual_appearance import validate_visual
+import rule_passport
+import card_combat
+import weapon_poison
+import siege
+import campaign_codex
+import result_trace
+import location_advanced
 import exploration
 import audio_director
 import resident_services
@@ -38,7 +46,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer as HTTPServerBase
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 
 class ThreadingHTTPServer(HTTPServerBase):
@@ -107,6 +115,7 @@ class Game:
         if not row:
             raise ValueError('Кампания не найдена.')
         room=json.loads(row[0])
+        rule_passport.ensure(room)
         art=room.get('mapArtwork',{})
         if room.get('worldLayout')=='ravenland' and art.get('style','reference')!='upload':room['_worldBase']=self.reference_terrain
         return room
@@ -194,10 +203,15 @@ class Game:
         check_state.project(room)
         check_abilities.project(room)
         exploration.project(room,s)
+        location_advanced.project(room,s)
         resident_services.project(room,s)
         expedition.project(room,s)
         afflictions.project(room,s)
         magic_rules.project(room,s)
+        rule_passport.project(room,s)
+        card_combat.project(room,s)
+        weapon_poison.project(room,s)
+        siege.project(room,s)
         cold_exposure.project(room,s)
         water_exposure.project(room,s)
         room['maps']['world']=effective_world(room)
@@ -248,7 +262,7 @@ class Game:
             if room.get('combat',{}).get('event',{}).get('private'):
                 room['combat'].pop('event',None)
             room['opposedChecks']=[p for p in room.get('opposedChecks',[]) if not p['private']]
-            redact_location_maps(room)
+            redact_location_maps(room,s)
             room.pop('workshop',None)
             room['journey']['pendingCount']=len(room['journey']['pending'])
             room['journey']['pending']=[]
@@ -265,9 +279,12 @@ class Game:
                         for k in ('label','note','siteType'):cell.pop(k,None)
             for u in room.get('combat',{}).get('units',[]):
                 if u.get('monster'):u['monster']={}
+        campaign_codex.project(room,s)
+        result_trace.project(room,s)
         room['members'] = [dict(name=x['name'], role=x['role'], owner=x['owner']) for x in self.sessions.values()
                            if x['room']==s['room'] and time.time()-x['seen']<45]
         room['me'] = dict(role=s['role'], owner=s['owner'], name=s['name'])
+        room['featureVersion']=130
         if s.get('account'):
             support=self.db.execute('SELECT actor FROM account_sessions WHERE token=?',(s['accountSession'],)).fetchone()
             if support and support[0]:room['me']['support']=True
@@ -287,23 +304,25 @@ class Game:
         if applied:return self.view(s)
         room = self.room(s['room'])
         medical_before=injuries.snapshot(room)
+        calculation_before=result_trace.snapshot(room)
         previous_logs={id(entry) for entry in room['log']}
         action = data.get('action')
         gm = s['role']=='gm'
-        if action!='audioDirector':magic_rules.guard(room,s,data)
-        if room.get('afflictionCheck') and action not in ('affliction','characterPride','chat','roll','freePush','freeAccept','audioDirector'):
+        card_combat.guard(room,s,data)
+        if action not in ('audioDirector','campaignCodex'):magic_rules.guard(room,s,data)
+        if room.get('afflictionCheck') and action not in ('affliction','characterPride','chat','roll','freePush','freeAccept','audioDirector','campaignCodex'):
             raise ValueError('Сначала завершите проверку сопротивления яду или болезни.')
-        if room.get('expeditionCheck') and action not in ('expedition','characterPride','chat','roll','freePush','freeAccept','audioDirector'):
+        if room.get('expeditionCheck') and action not in ('expedition','characterPride','chat','roll','freePush','freeAccept','audioDirector','campaignCodex'):
             raise ValueError('Сначала завершите проверку экспедиции.')
-        if room.get('waterCheck') and action not in ('waterExposure','characterPride','chat','roll','freePush','freeAccept','audioDirector'):
+        if room.get('waterCheck') and action not in ('waterExposure','characterPride','chat','roll','freePush','freeAccept','audioDirector','campaignCodex'):
             raise ValueError('Сначала завершите проверку в воде: примите результат или пойдите на риск.')
-        if room.get('coldCheck') and action not in ('coldExposure','characterPride','chat','roll','freePush','freeAccept','audioDirector'):
+        if room.get('coldCheck') and action not in ('coldExposure','characterPride','chat','roll','freePush','freeAccept','audioDirector','campaignCodex'):
             raise ValueError('Сначала завершите проверку холода: примите результат, пойдите на риск или используйте Путь леса.')
-        if room.get('treatment') and action not in ('injury','characterPride','chat','roll','freePush','freeAccept','tableTool','audioDirector'):
+        if room.get('treatment') and action not in ('injury','characterPride','chat','roll','freePush','freeAccept','tableTool','audioDirector','campaignCodex'):
             raise ValueError('Сначала завершите лечение: примите результат или пойдите на риск.')
         if room.get('treatment') and action=='tableTool' and data.get('op')=='completeFor':
             raise ValueError('Сначала завершите лечение.')
-        if room.get('journeyRisk') and action not in ('travelRisk','characterPride','chat','roll','freePush','freeAccept','tableTool','audioDirector'):raise ValueError('Сначала завершите проверку путешествия: примите результат или пойдите на риск.')
+        if room.get('journeyRisk') and action not in ('travelRisk','characterPride','chat','roll','freePush','freeAccept','tableTool','audioDirector','campaignCodex'):raise ValueError('Сначала завершите проверку путешествия: примите результат или пойдите на риск.')
         if room.get('combat',{}).get('pendingRisk') and action in ('character','actor','assignCharacter','runtime','deleteCharacter','combatCreate','combatManual','combatClose'):raise ValueError('Сначала завершите текущий боевой бросок.')
         t=journey_state(room)
         history_before=change_history.snapshot(room);history_context=change_history.context(room)
@@ -319,8 +338,18 @@ class Game:
             raise ValueError('Персонаж выполняет занятие. Завершите текущую четверть перед изменением листа или владельца.')
         if action in ('paint','mapLocation','mapArtwork','worldLayout','event','deleteCharacter','assignCharacter','deleteToken','combatCreate','combatClose','actor','combatManual') and not gm:
             raise PermissionError('Действие доступно только Мастеру.')
-        if action=='audioDirector':
+        if action=='rulePassport':
+            rule_passport.apply(room,s,data)
+        elif action=='weaponPoison':
+            weapon_poison.apply(room,s,data)
+        elif action=='siege':
+            siege.apply(room,s,data)
+        elif action=='campaignCodex':
+            campaign_codex.apply(room,s,data)
+        elif action=='audioDirector':
             audio_director.apply(room,s,data)
+        elif action=='locationAdvanced':
+            location_advanced.apply(room,s,data)
         elif action=='exploration':
             exploration.apply(room,s,data)
         elif action=='residentService':
@@ -410,12 +439,7 @@ class Game:
         elif action=='visual':
             c=next((c for c in room['characters'] if c['id']==data.get('id')),None)
             if not c or not gm and c['owner']!=s['owner']:raise PermissionError('Это не ваш персонаж.')
-            v=data.get('visual')
-            if not isinstance(v,dict) or set(v)!={'body','cloak','cloth','skin','hair','monster'} or v['body'] not in ('slim','broad') or v['monster'] not in ('spider','reptile','beast','horned'):
-                raise ValueError('Некорректная внешность.')
-            for k in ('cloak','cloth','skin','hair'):
-                color=v[k]
-                if not isinstance(color,str) or len(color)!=7 or color[0]!='#' or any(ch not in '0123456789abcdefABCDEF' for ch in color[1:]):raise ValueError('Некорректный цвет.')
+            v=validate_visual(data.get('visual'))
             c['visual']=v
             for u in room.get('combat',{}).get('units',[]):
                 if u['id']==c['id']:u['visual']=v
@@ -539,6 +563,7 @@ class Game:
                 seen.add(c['id']);characters.append(dict(character=c,team=choice['team'],equipment=equipped,initiativeGroup=choice.get('group',''),activations=choice.get('activations',1)));owners[c['id']]=c['owner']
             if len(set(c['team'] for c in characters))!=2:raise ValueError('Нужен хотя бы один боец в каждом отряде.')
             room['combat']=self.engine(dict(session=room['journey']['session'],create=characters,mapId=data.get('mapId','road'),sharedHeroInitiative=data.get('sharedHeroInitiative') is True))
+            card_combat.prepare(room,room['combat'])
             room['combatOwners']=owners;room['combatRevision']=room.get('combatRevision',0)+1
         elif action=='combatAction':
             battle=room.get('combat')
@@ -547,7 +572,7 @@ class Game:
             cmd=data.get('command',{})
             if not isinstance(cmd,dict):raise ValueError('Некорректная команда.')
             cmd={**cmd,'interactive':True}
-            name=cmd.get('action');actor=cmd.get('unit') if name in ('move','defense','initiativeChoose','initiativeOffer','initiativeAccept','initiativeSurprise','initiativeConfigure','kinAbility') else (battle['order'][battle['turn']] if battle['order'] else None)
+            name=cmd.get('action');actor=card_combat.actor(battle,cmd) or (cmd.get('unit') if name in ('move','defense','initiativeChoose','initiativeOffer','initiativeAccept','initiativeSurprise','initiativeConfigure','kinAbility') else (battle['order'][battle['turn']] if battle['order'] else None))
             pending=battle.get('pendingRisk')
             if pending:
                 if name!='risk' or cmd.get('roll')!=pending['id']:raise ValueError('Сначала примите результат броска или пойдите на риск.')
@@ -557,7 +582,7 @@ class Game:
                 if name in ('start','ai','resolve','initiativeSurprise','initiativeConfigure','initiativeAutogroup','initiativeGroupNext') or not actor or room.get('combatOwners',{}).get(actor)!=s['owner']:raise PermissionError('Вы управляете только своим бойцом.')
                 char=next((c for c in room['characters'] if c['id']==actor),None)
                 if not char or char['kind']!='pc':raise PermissionError('ПВ и чудовищами управляет Мастер.')
-                outside=name=='kinAbility' and cmd.get('ability') in ('orc','releasePrey')
+                outside=name in card_combat.CARD_COMMANDS or name in ('tacticalReaction','tacticalRecover','tacticalGuard','tacticalOffhand','tacticalMount') or name=='kinAbility' and cmd.get('ability') in ('orc','releasePrey')
                 if name not in ('defense','risk','initiativeChoose','initiativeOffer','initiativeAccept') and not outside and battle['phase']=='combat' and actor!=battle['order'][battle['turn']]:raise PermissionError('Сейчас ход другого бойца.')
             private=pending.get('private',False) if pending else dice_visibility(s,data)
             resolved_cmd=cmd
@@ -578,7 +603,7 @@ class Game:
             new_logs=updated.pop('commandLog',[])
             updated['publicLog']=(battle.get('publicLog',battle['log'])+([] if private else new_logs))[-300:]
             for roll in updated.pop('diceEvents',[]):
-                publish_dice(room,roll['name'],roll['label'],roll['groups'],roll['result'],private,risk=roll.get('risk'))
+                publish_dice(room,roll['name'],roll['label'],roll['groups'],roll['result'],private,risk=roll.get('risk'),sources=roll.get('sources'))
             sync_wear(room,room['combat'])
             before=next((u for u in battle['units'] if u['id']==event_actor),None)
             hit_ids=[u['id'] for u in updated['units'] if u['id']!=event_actor and any(u[k]<next(v for v in battle['units'] if v['id']==u['id'])[k] for k in ('str','agi','wits','emp'))]
@@ -591,6 +616,7 @@ class Game:
             for c in room['characters']:
                 u=next((u for u in room['combat']['units'] if u['id']==c['id']),None)
                 if u:c['runtime']={**c.get('runtime',{}),**dict(current=dict(str=u['str'],agi=u['agi'],wit=u['wits'],emp=u['emp']),wp=u['wp'],gearBonus=u['gear'],armor=u['armor'])}
+            weapon_poison.after_combat(room,impacts)
         elif action=='combatManual':
             battle=room.get('combat')
             if not battle or battle['phase']!='combat':raise ValueError('Нет активного боя.')
@@ -666,6 +692,7 @@ class Game:
         water_exposure.observe(room)
         afflictions.observe(room,medical_before,data)
         magic_rules.reconcile(room)
+        result_trace.record(room,calculation_before,data)
         stamp_entries(room,previous_logs,action)
         if action!='audioDirector':change_history.record(room,history_before,s,data,history_context)
         room['log']=room['log'][-200:]
@@ -797,7 +824,7 @@ def make_handler(game,public_test=False,max_rooms=50,limits=None):
             try:
                 cookie=None
                 length=int(self.headers.get('Content-Length','0'))
-                if not 0<length<=(5500000 if self.path=='/api/map-image' else 150000): raise ValueError('Некорректный размер запроса.')
+                if not 0<length<=(5500000 if self.path=='/api/map-image' else 2100000 if self.path=='/api/action' else 150000): raise ValueError('Некорректный размер запроса.')
                 # JSON + same-origin only: browsers cannot submit cross-origin forms to the API.
                 if self.headers.get('Content-Type','').split(';')[0]!='application/json':
                     raise ValueError('Ожидается application/json.')
@@ -807,6 +834,7 @@ def make_handler(game,public_test=False,max_rooms=50,limits=None):
                 if self.headers.get('Sec-Fetch-Site')=='cross-site':raise PermissionError('Другой origin.')
                 data=json.loads(raw)
                 if not isinstance(data,dict): raise ValueError('Ожидается объект JSON.')
+                if self.path=='/api/action' and length>150000 and not (data.get('action')=='locationAdvanced' and data.get('op') in ('packPreview','packImport')):raise ValueError('Большой запрос разрешён только для набора приключения.')
                 with LOCK:
                     if self.path in ('/api/account/register','/api/account/login','/api/account/recover'):
                         token,result=game.accounts.auth(self.path.rsplit('/',1)[1],data,self.account_token())
@@ -881,6 +909,15 @@ def make_handler(game,public_test=False,max_rooms=50,limits=None):
             if urlparse(self.path).path=='/api/admin':
                 try:
                     with LOCK:result=game.admin.overview(game.accounts.authenticate(self.account_token()))
+                    self.respond(200,result)
+                except PermissionError as e:self.respond(403,{'error':str(e)})
+                return
+            if urlparse(self.path).path=='/api/codex-media':
+                try:
+                    with LOCK:
+                        session=game.session(self.headers.get('Authorization',''))
+                        identifier=parse_qs(urlparse(self.path).query).get('id',[''])[0]
+                        result=campaign_codex.media(game.room(session['room']),session,identifier)
                     self.respond(200,result)
                 except PermissionError as e:self.respond(403,{'error':str(e)})
                 return
