@@ -13,7 +13,7 @@ def project(room):
             item=next((i for i in room.get('items',[]) if i['id']==r.get('item') and i.get('location')==dict(kind='character',id=c['id'])),None)
             battle=room.get('combat',{});travel=room['journey']
             locked=(battle.get('phase') in ('setup','combat') and any(u['id']==c['id'] for u in battle.get('units',[])) or
-                    travel['phase']=='resolving' and c['id'] in travel['party'] or room.get('treatment') or room.get('coldCheck') or
+                    travel['phase']=='resolving' and c['id'] in travel['party'] or room.get('treatment') or room.get('coldCheck') or room.get('waterCheck') or
                     any(i.get('repair',{}).get('status')=='rolled' and i['repair']['character']==c['id'] for i in room.get('items',[])))
             # Older saves may retain unaccepted rolls after the pair was finished
             # or removed from its bounded history. They are no longer actionable.

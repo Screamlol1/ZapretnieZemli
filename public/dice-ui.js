@@ -57,7 +57,7 @@ export function diceUI(getState,action){
   const cmd=riskAction(getState(),current);if(!cmd)return renderRisk();
   if(current.risk.kind==='power')cmd.command.power={ignoreArmor:!!push&&stage.querySelector('[data-power-armor]').checked,damage:push?Number(stage.querySelector('[data-power-damage]')?.value||0):0};
   if(['avoid','orc'].includes(current.risk.kind))cmd.command.wp=push?Number(stage.querySelector('[data-ability-wp]')?.value||0):0;
-  if(accept){if(cmd.action==='injury'||cmd.action==='coldExposure')cmd.op='accept';else if(cmd.action==='inventoryRepair')cmd.op='accept';else if(cmd.action==='combatAction')cmd.command.push=false;else if(cmd.action==='travelRisk')cmd.push=false;else cmd.action=cmd.action==='opposedPush'?'opposedAccept':cmd.action==='freePush'?'freeAccept':'characterAccept';}
+  if(accept){if(cmd.action==='injury'||cmd.action==='coldExposure'||cmd.action==='waterExposure')cmd.op='accept';else if(cmd.action==='inventoryRepair')cmd.op='accept';else if(cmd.action==='combatAction')cmd.command.push=false;else if(cmd.action==='travelRisk')cmd.push=false;else cmd.action=cmd.action==='opposedPush'?'opposedAccept':cmd.action==='freePush'?'freeAccept':'characterAccept';}
   riskBusy=true;renderRisk();let ok=false;
   try{ok=await action(cmd);}finally{riskBusy=false;renderRisk();}
   if(ok){next();}else{const error=stage.querySelector('[data-risk-error]');if(error)error.textContent=document.getElementById('error')?.textContent||'Не удалось сохранить выбор. Повторите.';}

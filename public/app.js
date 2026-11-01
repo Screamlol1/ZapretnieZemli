@@ -1,3 +1,4 @@
+import {waterUI} from './water-ui.js';
 import {coldUI} from './cold-ui.js';
 import {commandTracker} from './reliable-actions.js';
 import {recoveryUI} from './recovery-ui.js';
@@ -76,6 +77,7 @@ const world=worldMap(()=>state,action,()=>credentials,error,()=>journey.render()
 const flow=sessionFlowUI(()=>state,setView,id=>inventory.open(id));
 const medical=injuriesUI(()=>state,action,setView);
 const cold=coldUI(()=>state,action,setView);
+const water=waterUI(()=>state,action,setView);
 const recap=sessionRecapUI(()=>state,action,id=>{setView('inventory');if(id)inventory.open(id);});
 const shared=tableToolsUI(()=>state,action,world,setView,openLocation);
 const quickHero=compactHeroUI(()=>state,{inventory:id=>{setView('inventory');inventory.open(id);},health:id=>medical.open(id),sheet:openCreator,token:id=>{const t=state.tokens.find(t=>t.characterId===id&&t.map==='world');if(t){setView('map');requestAnimationFrame(()=>world.focusPoint(t));}else if(state.combat?.units.some(u=>u.id===id)){setView('combat');document.dispatchEvent(new CustomEvent('focus-combat-unit',{detail:id}));}else error(Error('У героя пока нет жетона на общей карте или в текущем бою.'));}});
@@ -110,7 +112,7 @@ function render(){$('support-banner').hidden=!state?.me.support;if(!state)return
  $('board').innerHTML=Array.from({length:384},(_,i)=>{const x=i%24,y=Math.floor(i/24),key=`${x},${y}`,cell=state.maps.battle[key]||{terrain:'plain'},hidden=fog.has(key),ts=state.tokens.filter(t=>t.map===map&&t.x===x&&t.y===y);return `<button data-x="${x}" data-y="${y}" data-terrain="${hidden&&!gm?'wall':cell.terrain}" class="${hidden?'secret':''} ${ts.length?'token':''}" title="${esc(ts.map(t=>t.name).join(', ')||`${x+1}, ${y+1}`)}" aria-label="${esc(`${x+1}, ${y+1}; ${hidden&&!gm?'скрыто':cell.terrain}; ${ts.map(t=>t.name).join(', ')}`)}">${hidden&&!gm?'?':ts.length?esc(ts[0].name.slice(0,2)):symbols[cell.terrain]}</button>`;}).join('');
 }}
  recoveryState();journal.render();dice.render();opposed.render();
- inventory.render();locations.render();workshop.render();renderCombat();journey.render();personal.render();flow.render();medical.render();cold.render();recap.render();shared.render();quickHero.render();modeTools();setView(view);
+ inventory.render();locations.render();workshop.render();renderCombat();journey.render();personal.render();flow.render();medical.render();cold.render();water.render();recap.render();shared.render();quickHero.render();modeTools();setView(view);
 }
 $('create').onclick=()=>login(true);$('join').onclick=()=>login(false);$('leave').onclick=async()=>{try{await api('leave',{});}catch{}sessionStorage.removeItem('campaign');location.href=credentials?.account?'/':'/index.html';};
 document.querySelectorAll('[data-map]').forEach(b=>b.onclick=()=>{world.remember();map=b.dataset.map;$('mode').value='inspect';document.querySelectorAll('[data-map]').forEach(x=>x.classList.toggle('active',x===b));render();});

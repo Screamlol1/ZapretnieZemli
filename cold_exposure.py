@@ -73,7 +73,7 @@ def apply(room,s,data):
         if data.get('exposure')!=e['id'] or not due(room,c):raise ValueError('Эта проверка холода ещё не наступила или уже выполнена.')
         if fatal_due(room,c):raise ValueError('Телосложение сломлено при переохлаждении: Мастер должен подтвердить смертельный исход или своевременное согревание.')
         if cur['str']<=0:raise ValueError('Телосложение сломлено; разрешите состояние персонажа перед проверкой.')
-        if room.get('combat',{}).get('pendingRisk') or room.get('treatment') or room.get('journeyRisk'):
+        if room.get('combat',{}).get('pendingRisk') or room.get('treatment') or room.get('journeyRisk') or room.get('waterCheck'):
             raise ValueError('Сначала завершите текущий бросок боя, лечения или путешествия.')
         if any(i.get('repair',{}).get('status')=='rolled' for i in room.get('items',[])):raise ValueError('Сначала завершите ремонт.')
         tool=next((i for i in owned(room,c['id']) if i['id']==e['item']),None)

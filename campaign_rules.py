@@ -95,6 +95,10 @@ def participants(room):
 
 def try_cycle(room):
     t=state(room)
+    from water_exposure import active as in_water
+    water_blocker='Сначала завершите сцену в воде: плавание, погружение или спасение.'
+    if in_water(room):t['blocker']=water_blocker;return
+    if t.get('blocker')==water_blocker:t['blocker']=''
     from cold_exposure import overdue
     if room.get('coldCheck') or overdue(room):return
     if room.get('journeyRisk') or not t['automatic'] or not t['party']:return
@@ -266,6 +270,7 @@ def apply(room,s,data):
         if flags.get('sleepy'):blocked.add('wit')
         if flags.get('cold'):blocked.update(('str','wit'))
         if flags.get('thirsty'):blocked.update(c['sheet']['attrs'])
+        if c['runtime'].get('waterExposure'):blocked.update(c['sheet']['attrs'])
         restored=[k for k in c['sheet']['attrs'] if k not in blocked]
         for k in restored:c['runtime']['current'][k]=c['sheet']['attrs'][k]
         journal(room,c['name']+': подтверждён отдых. Восстановлены: '+(', '.join({'str':'ТЕЛ','agi':'ЛОВ','wit':'РАЗ','emp':'ЭМП'}[k] for k in restored) or 'нет — мешают состояния')+'.')
@@ -308,6 +313,8 @@ def apply(room,s,data):
 
 def advance(room,data,defer_clock=False):
     t=room['journey']
+    from water_exposure import active as in_water
+    if in_water(room):raise ValueError('Сначала завершите сцену в воде: плавание, погружение или спасение.')
     if not t['party']:raise ValueError('Сначала соберите отряд.')
     if t['pending']:raise ValueError('Сначала Мастер должен разрешить ожидающие события.')
     party=[next((c for c in room['characters'] if c['id']==cid and not c.get('hidden')),None) for cid in t['party']]

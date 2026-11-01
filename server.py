@@ -15,6 +15,7 @@ import argparse
 import pride
 import check_state
 import cold_exposure
+import water_exposure
 import action_receipts
 import base64
 import binascii
@@ -175,6 +176,7 @@ class Game:
         session_recap.public(room,s)
         check_state.project(room)
         cold_exposure.project(room,s)
+        water_exposure.project(room,s)
         room['maps']['world']=effective_world(room)
         room['mapTerrain']={'referenceCount':len(room.get('_worldBase',{}))}
         room.pop('_worldBase',None)
@@ -260,6 +262,8 @@ class Game:
         previous_logs={id(entry) for entry in room['log']}
         action = data.get('action')
         gm = s['role']=='gm'
+        if room.get('waterCheck') and action not in ('waterExposure','chat','roll','freePush','freeAccept'):
+            raise ValueError('Сначала завершите проверку в воде: примите результат или пойдите на риск.')
         if room.get('coldCheck') and action not in ('coldExposure','chat','roll','freePush','freeAccept'):
             raise ValueError('Сначала завершите проверку холода: примите результат, пойдите на риск или используйте Путь леса.')
         if room.get('treatment') and action not in ('injury','chat','roll','freePush','freeAccept','tableTool'):
@@ -286,6 +290,8 @@ class Game:
             injuries.apply(room,s,data)
         elif action=='coldExposure':
             cold_exposure.apply(room,s,data)
+        elif action=='waterExposure':
+            water_exposure.apply(room,s,data)
         elif action=='characterPride':
             pride.apply(room,s,data)
         elif action=='characterAbility':
@@ -596,6 +602,7 @@ class Game:
                         c['runtime']['prey']=unit['prey']
                     else:c['runtime'].pop('prey',None)
         injuries.reconcile(room,medical_before,data)
+        water_exposure.observe(room)
         stamp_entries(room,previous_logs,action)
         change_history.record(room,history_before,s,data,history_context)
         room['log']=room['log'][-200:]

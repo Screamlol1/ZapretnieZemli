@@ -116,7 +116,7 @@ def reconcile(room,before,data):
                     pair=next((p for p in room.get('opposedChecks',[]) if p['id']==data.get('id')),None)
                     actor=pair.get('attacker',{}).get('character') if pair else None
                 is_push=not actor or actor==c['id']
-            condition=(action.startswith('travel') or action=='coldExposure') and not event
+            condition=(action.startswith('travel') or action in ('coldExposure','waterExposure')) and not event
             if is_push or condition or replayed:continue
             pending_injury(room,c,attr,event.get('table') if event else None)
             resolved_events.add(attr)
@@ -135,7 +135,9 @@ def advance(room,minutes):
     if type(minutes) not in (int,float) or not math.isfinite(minutes) or not 0<=minutes<=525600:
         raise ValueError('Укажите прошедшее игровое время от 0 до 525600 минут.')
     from cold_exposure import overdue,due
+    from water_exposure import overdue as water_overdue
     if minutes and overdue(room):raise ValueError('Сначала разрешите наступившие проверки холода, затем продолжайте игровое время.')
+    if minutes and water_overdue(room):raise ValueError('Сначала разрешите наступившие проверки или последствия в воде.')
     room['medicalClock']=round(now(room)+minutes,4)
     for c in room['characters']:
         if c['kind']=='monster':continue
@@ -157,7 +159,9 @@ def advance(room,minutes):
         if rt.get('dead') or blocked(c):continue
         for attr,episode in list(rt.get('brokenRecovery',{}).items()):
             if now(room)>=episode['due']:
-                if recovery_blocked(c,attr) or attr in ('str','wit') and due(room,c):continue
+                cold_due_first=attr in ('str','wit') and due(room,c) and rt['coldExposure']['nextAt']<=episode['due']
+                underwater=rt.get('waterExposure',{}).get('phase') in ('submerged','drowning','broken')
+                if recovery_blocked(c,attr) or cold_due_first or underwater:continue
                 if cur.get(attr,0)<=0:cur[attr]=1;log(room,c,f'самостоятельное восстановление: {NAMES[attr]} 1.')
                 del rt['brokenRecovery'][attr]
         sync_battle(room,c)

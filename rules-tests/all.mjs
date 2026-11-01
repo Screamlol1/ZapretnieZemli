@@ -10,6 +10,7 @@ import './world-map.test.mjs';
 import './network.test.mjs';
 import './reliable-actions.test.mjs';
 import './cold-ui.test.mjs';
+import './water-ui.test.mjs';
 import './equipment.test.mjs';
 import './workshop.test.mjs';
 
