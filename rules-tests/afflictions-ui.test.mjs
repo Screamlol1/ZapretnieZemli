@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import {afflictionTime} from '../public/afflictions-ui.js';
+import {abilityCheck} from '../public/check-abilities-ui.js';
+import {riskAction} from '../public/dice-risk.js';
+assert.equal(afflictionTime(.1667,0),'Через 10 сек');assert.equal(afflictionTime(60,0),'Через 1 ч');assert.equal(afflictionTime(60,60),'Срок наступил');
+const hero={id:'hero',kind:'pc',owner:'owner',sheet:{kin:'dwarf'},runtime:{wp:2,current:{str:3,agi:3,wit:3,emp:3}}};
+const r={id:'check',base:[2],skillDice:[2],gear:[],penalty:[],artifacts:[{sides:8,value:2}],artifact:2,pushed:true,pushAvailable:true,kinPushes:1,hits:0,prideAvailable:true};
+const s={characters:[hero],me:{role:'player',owner:'owner'},journey:{phase:'resolving'},journeyRisk:{id:'check',actor:'hero',diceEvent:'latest',roll:r}};
+const event={id:'latest',risk:{action:'journey',character:'hero',roll:'check'}};
+assert.equal(abilityCheck(s,'hero','check').r,r);let cmd=riskAction(s,event);assert.equal(cmd.kinRepeat,true);assert.equal(cmd.kinAttempt,1);assert.equal(cmd.pushAvailable,true,'Legacy scalar artifact does not break dwarf controls');
+assert.equal(riskAction(s,{...event,id:'previous'}),null,'Old pushed event cannot issue another repeat');
+delete s.journeyRisk;s.afflictionCheck={id:'check',character:'hero',target:'patient',diceEvent:'latest',roll:{...r,pushAvailable:false}};event.risk.action='affliction';cmd=riskAction(s,event);assert.equal(cmd.op,'accept');assert.equal(cmd.pushAvailable,false,'Defensive resistance has acceptance but no push');
+s.me.owner='other';assert.equal(riskAction(s,event),null);assert.equal(abilityCheck(s,'missing'),null);
+console.log('Afflictions/abilities UI: second deadlines, shared check lookup, repeat nonce, legacy artifact, stale events and defensive resistance passed.');

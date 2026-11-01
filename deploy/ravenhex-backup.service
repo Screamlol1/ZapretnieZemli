@@ -1,0 +1,14 @@
+[Unit]
+Description=Private game database and map snapshot
+
+[Service]
+Type=oneshot
+User=ravenhex
+Group=ravenhex
+UMask=0077
+ExecStart=/usr/bin/python3 /opt/ravenhex/backup.py --database /var/lib/ravenhex/campaigns.sqlite --reference-root /var/lib/ravenhex/local-assets --output /var/lib/ravenhex/backups
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/ravenhex/backups

@@ -1,0 +1,626 @@
+[
+  {
+    "id": "human",
+    "label": "Люди",
+    "ground": "grass",
+    "road": "earth",
+    "description": "Деревянные дома, торговые дворы и сторожевые башни.",
+    "source": "КВ, с. 43–51",
+    "assets": [
+      {
+        "id": "human-home",
+        "label": "Дом поселенца",
+        "width": 10,
+        "height": 8,
+        "role": "home",
+        "atlas": "a",
+        "crop": [
+          38,
+          0,
+          260,
+          241
+        ]
+      },
+      {
+        "id": "human-hall",
+        "label": "Торговый двор",
+        "width": 18,
+        "height": 12,
+        "role": "hall",
+        "atlas": "a",
+        "crop": [
+          353,
+          2,
+          329,
+          254
+        ]
+      },
+      {
+        "id": "human-landmark",
+        "label": "Сторожевая башня",
+        "width": 8,
+        "height": 8,
+        "role": "landmark",
+        "atlas": "a",
+        "crop": [
+          770,
+          1,
+          171,
+          248
+        ]
+      }
+    ]
+  },
+  {
+    "id": "elf",
+    "label": "Эльфы",
+    "ground": "forest",
+    "road": "earth",
+    "description": "Лесные жилища, открытые павильоны и места памяти.",
+    "source": "КВ, с. 52–55",
+    "assets": [
+      {
+        "id": "elf-home",
+        "label": "Лесной дом",
+        "width": 12,
+        "height": 10,
+        "role": "home",
+        "atlas": "a",
+        "crop": [
+          25,
+          246,
+          283,
+          261
+        ]
+      },
+      {
+        "id": "elf-hall",
+        "label": "Павильон собраний",
+        "width": 16,
+        "height": 12,
+        "role": "hall",
+        "atlas": "a",
+        "crop": [
+          367,
+          258,
+          308,
+          252
+        ]
+      },
+      {
+        "id": "elf-landmark",
+        "label": "Древо памяти",
+        "width": 10,
+        "height": 10,
+        "role": "landmark",
+        "atlas": "a",
+        "crop": [
+          705,
+          251,
+          303,
+          260
+        ]
+      }
+    ]
+  },
+  {
+    "id": "halfelf",
+    "label": "Полуэльфы",
+    "ground": "forest",
+    "road": "stone",
+    "description": "Камень и дерево, мастерские травников и сады. Можно смешивать с человеческим набором.",
+    "source": "КВ, с. 45–51",
+    "assets": [
+      {
+        "id": "halfelf-home",
+        "label": "Дом у рощи",
+        "width": 10,
+        "height": 8,
+        "role": "home",
+        "atlas": "a",
+        "crop": [
+          25,
+          512,
+          281,
+          242
+        ]
+      },
+      {
+        "id": "halfelf-hall",
+        "label": "Дом травника",
+        "width": 12,
+        "height": 10,
+        "role": "hall",
+        "atlas": "a",
+        "crop": [
+          366,
+          526,
+          305,
+          228
+        ]
+      },
+      {
+        "id": "halfelf-landmark",
+        "label": "Садовая обсерватория",
+        "width": 8,
+        "height": 8,
+        "role": "landmark",
+        "atlas": "a",
+        "crop": [
+          730,
+          514,
+          263,
+          246
+        ]
+      }
+    ]
+  },
+  {
+    "id": "dwarf",
+    "label": "Дварфы",
+    "ground": "highland",
+    "road": "stone",
+    "description": "Тяжёлая каменная кладка, кузницы, укреплённые входы.",
+    "source": "КВ, с. 56–60",
+    "assets": [
+      {
+        "id": "dwarf-home",
+        "label": "Каменный дом",
+        "width": 12,
+        "height": 10,
+        "role": "home",
+        "atlas": "a",
+        "crop": [
+          17,
+          759,
+          308,
+          250
+        ]
+      },
+      {
+        "id": "dwarf-hall",
+        "label": "Кузнечный двор",
+        "width": 16,
+        "height": 12,
+        "role": "hall",
+        "atlas": "a",
+        "crop": [
+          363,
+          758,
+          298,
+          256
+        ]
+      },
+      {
+        "id": "dwarf-landmark",
+        "label": "Каменные ворота",
+        "width": 14,
+        "height": 8,
+        "role": "landmark",
+        "atlas": "a",
+        "crop": [
+          695,
+          762,
+          313,
+          256
+        ]
+      }
+    ]
+  },
+  {
+    "id": "halfling",
+    "label": "Полурослики",
+    "ground": "grass",
+    "road": "earth",
+    "description": "Невысокие сельские дома, таверны и огороды.",
+    "source": "КВ, с. 70–71",
+    "assets": [
+      {
+        "id": "halfling-home",
+        "label": "Дом под дёрном",
+        "width": 8,
+        "height": 7,
+        "role": "home",
+        "atlas": "a",
+        "crop": [
+          20,
+          1024,
+          298,
+          213
+        ]
+      },
+      {
+        "id": "halfling-hall",
+        "label": "Малая таверна",
+        "width": 12,
+        "height": 9,
+        "role": "hall",
+        "atlas": "a",
+        "crop": [
+          345,
+          1016,
+          329,
+          222
+        ]
+      },
+      {
+        "id": "halfling-landmark",
+        "label": "Огород",
+        "width": 10,
+        "height": 8,
+        "role": "landmark",
+        "atlas": "a",
+        "crop": [
+          701,
+          1024,
+          308,
+          213
+        ]
+      }
+    ]
+  },
+  {
+    "id": "wolfkin",
+    "label": "Полуволки",
+    "ground": "forest",
+    "road": "earth",
+    "description": "Укрытия из шкур и ветвей, охотничьи стоянки, места собраний. Рекомендуется тип «Лагерь».",
+    "source": "КВ, с. 67–68",
+    "assets": [
+      {
+        "id": "wolfkin-home",
+        "label": "Охотничье укрытие",
+        "width": 4,
+        "height": 3,
+        "role": "home",
+        "atlas": "a",
+        "crop": [
+          24,
+          1248,
+          277,
+          252
+        ]
+      },
+      {
+        "id": "wolfkin-hall",
+        "label": "Общий навес",
+        "width": 8,
+        "height": 6,
+        "role": "hall",
+        "atlas": "a",
+        "crop": [
+          346,
+          1244,
+          332,
+          255
+        ]
+      },
+      {
+        "id": "wolfkin-landmark",
+        "label": "Круг собраний",
+        "width": 8,
+        "height": 8,
+        "role": "landmark",
+        "atlas": "a",
+        "crop": [
+          701,
+          1247,
+          304,
+          265
+        ]
+      }
+    ]
+  },
+  {
+    "id": "orc",
+    "label": "Орки",
+    "ground": "highland",
+    "road": "earth",
+    "description": "Бревенчатые жилища и военные постройки. Разные кланы могут занимать чужие руины.",
+    "source": "КВ, с. 62–66",
+    "assets": [
+      {
+        "id": "orc-home",
+        "label": "Бревенчатый дом",
+        "width": 12,
+        "height": 9,
+        "role": "home",
+        "atlas": "b",
+        "crop": [
+          15,
+          7,
+          341,
+          251
+        ]
+      },
+      {
+        "id": "orc-hall",
+        "label": "Казарма",
+        "width": 18,
+        "height": 10,
+        "role": "hall",
+        "atlas": "b",
+        "crop": [
+          370,
+          20,
+          318,
+          225
+        ]
+      },
+      {
+        "id": "orc-landmark",
+        "label": "Дозорная вышка",
+        "width": 7,
+        "height": 7,
+        "role": "landmark",
+        "atlas": "b",
+        "crop": [
+          763,
+          6,
+          194,
+          272
+        ]
+      }
+    ]
+  },
+  {
+    "id": "goblin",
+    "label": "Свартальвы (гоблины)",
+    "ground": "forest",
+    "road": "earth",
+    "description": "Переносные укрытия, загоны для волков, места ночных обрядов. Рекомендуется «Лагерь».",
+    "source": "КВ, с. 70–72",
+    "assets": [
+      {
+        "id": "goblin-home",
+        "label": "Низкий шатёр",
+        "width": 3,
+        "height": 3,
+        "role": "home",
+        "atlas": "b",
+        "crop": [
+          22,
+          269,
+          306,
+          198
+        ]
+      },
+      {
+        "id": "goblin-hall",
+        "label": "Загон для волков",
+        "width": 8,
+        "height": 6,
+        "role": "hall",
+        "atlas": "b",
+        "crop": [
+          341,
+          254,
+          338,
+          240
+        ]
+      },
+      {
+        "id": "goblin-landmark",
+        "label": "Лунный круг",
+        "width": 6,
+        "height": 6,
+        "role": "landmark",
+        "atlas": "b",
+        "crop": [
+          721,
+          280,
+          275,
+          204
+        ]
+      }
+    ]
+  },
+  {
+    "id": "ogre",
+    "label": "Огры",
+    "ground": "highland",
+    "road": "earth",
+    "description": "Грубые хижины, каменные логова и большие очаги.",
+    "source": "КВ, с. 60–61",
+    "assets": [
+      {
+        "id": "ogre-home",
+        "label": "Большая хижина",
+        "width": 16,
+        "height": 12,
+        "role": "home",
+        "atlas": "b",
+        "crop": [
+          12,
+          474,
+          344,
+          266
+        ]
+      },
+      {
+        "id": "ogre-hall",
+        "label": "Каменное логово",
+        "width": 14,
+        "height": 12,
+        "role": "hall",
+        "atlas": "b",
+        "crop": [
+          357,
+          506,
+          332,
+          241
+        ]
+      },
+      {
+        "id": "ogre-landmark",
+        "label": "Большой очаг",
+        "width": 10,
+        "height": 8,
+        "role": "landmark",
+        "atlas": "b",
+        "crop": [
+          692,
+          505,
+          319,
+          262
+        ]
+      }
+    ]
+  },
+  {
+    "id": "saurian",
+    "label": "Ящеролюды (Saurians)",
+    "ground": "marsh",
+    "road": "planks",
+    "description": "Торговые площадки на сваях, камышовые хижины и рыболовные снасти.",
+    "source": "КВ, с. 68–69",
+    "assets": [
+      {
+        "id": "saurian-home",
+        "label": "Хижина на сваях",
+        "width": 8,
+        "height": 8,
+        "role": "home",
+        "atlas": "b",
+        "crop": [
+          33,
+          737,
+          293,
+          283
+        ]
+      },
+      {
+        "id": "saurian-hall",
+        "label": "Торговый настил",
+        "width": 14,
+        "height": 10,
+        "role": "hall",
+        "atlas": "b",
+        "crop": [
+          350,
+          746,
+          335,
+          268
+        ]
+      },
+      {
+        "id": "saurian-landmark",
+        "label": "Рыбацкий причал",
+        "width": 8,
+        "height": 6,
+        "role": "landmark",
+        "atlas": "b",
+        "crop": [
+          697,
+          802,
+          308,
+          214
+        ]
+      }
+    ]
+  },
+  {
+    "id": "whiner",
+    "label": "Whiners · жители каменных нор",
+    "ground": "highland",
+    "road": "stone",
+    "description": "Пористые каменные убежища с тесными ходами. Рекомендуется «Пещера». Название оставлено из английской книги.",
+    "source": "КВ, с. 69–70",
+    "assets": [
+      {
+        "id": "whiner-home",
+        "label": "Пористое убежище",
+        "width": 5,
+        "height": 5,
+        "role": "home",
+        "atlas": "b",
+        "crop": [
+          8,
+          1023,
+          314,
+          225
+        ]
+      },
+      {
+        "id": "whiner-hall",
+        "label": "Каменная нора",
+        "width": 4,
+        "height": 4,
+        "role": "hall",
+        "atlas": "b",
+        "crop": [
+          341,
+          1018,
+          327,
+          245
+        ]
+      },
+      {
+        "id": "whiner-landmark",
+        "label": "Входы в ходы",
+        "width": 6,
+        "height": 4,
+        "role": "landmark",
+        "atlas": "b",
+        "crop": [
+          672,
+          1044,
+          345,
+          193
+        ]
+      }
+    ]
+  },
+  {
+    "id": "aslene",
+    "label": "Люди · аслены",
+    "ground": "grass",
+    "road": "earth",
+    "description": "Конные стоянки, шатры и конюшни. Мотив кочевых галданов; не все аслены кочуют.",
+    "source": "КВ, с. 49–51",
+    "assets": [
+      {
+        "id": "aslene-home",
+        "label": "Шатёр всадников",
+        "width": 6,
+        "height": 6,
+        "role": "home",
+        "atlas": "b",
+        "crop": [
+          9,
+          1247,
+          326,
+          250
+        ]
+      },
+      {
+        "id": "aslene-hall",
+        "label": "Конюшня",
+        "width": 18,
+        "height": 10,
+        "role": "hall",
+        "atlas": "b",
+        "crop": [
+          326,
+          1267,
+          363,
+          229
+        ]
+      },
+      {
+        "id": "aslene-landmark",
+        "label": "Конные столбы",
+        "width": 8,
+        "height": 6,
+        "role": "landmark",
+        "atlas": "b",
+        "crop": [
+          703,
+          1270,
+          300,
+          246
+        ]
+      }
+    ]
+  }
+]

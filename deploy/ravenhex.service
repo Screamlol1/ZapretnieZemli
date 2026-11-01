@@ -1,0 +1,25 @@
+[Unit]
+Description=Forbidden Lands game table
+After=network.target
+
+[Service]
+Type=simple
+User=ravenhex
+Group=ravenhex
+WorkingDirectory=/opt/ravenhex
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/python3 /opt/ravenhex/server.py --host 127.0.0.1 --port 8789 --database /var/lib/ravenhex/campaigns.sqlite --reference-root /var/lib/ravenhex/local-assets --public-test
+Restart=on-failure
+RestartSec=3
+UMask=0077
+StateDirectory=ravenhex
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/ravenhex
+
+[Install]
+WantedBy=multi-user.target

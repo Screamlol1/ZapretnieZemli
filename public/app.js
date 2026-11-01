@@ -1,0 +1,186 @@
+import {rulePassportUI} from './rule-passport.js';
+import {warfareUI} from './warfare-ui.js';
+import {gameAudio} from './game-audio.js';
+import {campaignDeskUI} from './campaign-desk.js';
+import {installLoadingScenes} from './loading-scenes.js';
+import {projectedAudioFeed} from './game-audio-state.js';
+import {bindBattleLinks,allowFrameLeave,confirmFrameClose,loadToolFrame} from './in-app-navigation.js';
+bindBattleLinks();
+import {scenePanelUI} from './scene-panel.js';
+import {playFeedbackUI} from './play-feedback.js';
+import {residentServicesUI} from './resident-services.js';
+import {afflictionsUI} from './afflictions-ui.js';
+import {checkAbilitiesUI} from './check-abilities-ui.js';
+import {renderMagic,bindMagic} from './magic-ui.js';
+import {waterUI} from './water-ui.js';
+import {coldUI} from './cold-ui.js';
+import {commandTracker} from './reliable-actions.js';
+import {recoveryUI} from './recovery-ui.js';
+import {sessionFlowUI} from './session-flow-ui.js';
+import {sessionRecapUI} from './session-recap.js';
+import {injuriesUI} from './injuries-ui.js';
+import {tableToolsUI} from './table-tools.js';
+import {compactHeroUI} from './compact-hero.js';
+import {identityMarkup,campaignParticipants,escapeIdentity} from './player-identity.js';
+import {opposedUI} from './opposed-ui.js';
+import {artifactFields,readArtifacts} from './artifact-pool.js';
+import {locationMapsUI} from './location-maps.js';
+import {diceUI} from './dice-ui.js';
+import {openProgression} from './progression-ui.js';
+import {personalTurnUI} from './personal-turn.js';
+import {journalUI} from './journal.js';
+import {workshopUI} from './workshop.js';
+import {saveUI} from './saves.js';
+import {inventoryUI} from './inventory.js';
+import {COLS,ROWS} from './world-hex.js';
+import {requestJson,acceptState} from './network.js';
+import {validateImport} from './tools/rules.js';
+import {combatUI} from './campaign-combat.js';
+import {visualEditor,paintSprites} from './appearance.js';
+import {actorEditor} from './actor-editor.js';
+import {journeyUI} from './journey.js';
+import {worldMap} from './world-map.js';
+const $=id=>document.getElementById(id),esc=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let credentials=null;try{credentials=JSON.parse(sessionStorage.getItem('campaign')||'null');}catch{sessionStorage.removeItem('campaign');}
+let state=null,map='world',timer,busy=false,view=sessionStorage.getItem('campaign-view')||'scene',lastCrew='',lastBoard='',stateEtag='',failures=0,pendingAction=false;
+if(!['scene','magic','map','combat','holds','crew','journal','inventory','workshop','locations','desk','codex','rules','warfare'].includes(view))view='map';
+const editors=new Map();let creatorDialog=null,creatorFrame=null;
+const audioFeed=projectedAudioFeed();
+function syncAudio(){if(!state)return;const next=audioFeed(state,view);gameAudio.updateContext(next.context);for(const event of next.events)gameAudio.playEvent(event).catch(()=>{});}
+const loading=installLoadingScenes();
+const viewTheme=()=>({magic:'magic',combat:'battle',locations:'settlement',holds:'settlement',workshop:'settlement',crew:'characters',inventory:'characters'}[view]||'journey');
+let initialLoading=!!credentials;if(initialLoading)loading.show({theme:viewTheme(),title:'Открываем кампанию…'});
+let commands=null,commandScope='',recoveryMissing=false;
+const showRecovery=recoveryUI({check:recoverAction,retry:retryAction});
+function commandStore(){
+ if(!state)return null;
+ const scope='zz-pending-action:'+state.id+':'+state.me.owner;
+ if(scope!==commandScope){commandScope=scope;recoveryMissing=false;commands=commandTracker({storage:localStorage,key:scope,send:data=>api('action',data),status:requestId=>api('action-status',{requestId})});}
+ return commands;
+}
+function recoveryState(message=''){const tracker=commandStore();showRecovery(tracker?.pending,{busy:pendingAction||tracker?.active,missing:recoveryMissing,message});}
+async function recoverAction(){
+ const tracker=commandStore(),auth=credentials;if(!tracker?.pending||tracker.active||pendingAction)return;
+ try{const resultPromise=tracker.reconcile();recoveryState();const result=await resultPromise;if(auth!==credentials||!result)return;
+  if(acceptState(state,result.state)){state=result.state;render();}recoveryMissing=result.status==='missing';
+  if(result.status==='applied'){$('save-status').textContent='Действие сохранено · связь восстановлена';$('error').textContent='';}
+  recoveryState();
+ }catch(e){recoveryState(e.message);}
+}
+async function retryAction(){
+ const tracker=commandStore(),auth=credentials;if(!tracker?.pending||tracker.active||pendingAction)return;
+ pendingAction=true;recoveryState();$('save-status').textContent='Проверяем и отправляем прежнее действие…';
+ try{const next=await tracker.retry();if(auth!==credentials)return;if(acceptState(state,next))state=next;render();$('error').textContent='';$('save-status').textContent='Сохранено без повторного выполнения';}
+ catch(e){error(e);$('save-status').textContent=tracker.pending?'Ожидаем подтверждения':'Действие отклонено · проверьте актуальное состояние';}
+ finally{pendingAction=false;recoveryState();}
+}
+function openCreator(id){
+ if(!creatorDialog){creatorDialog=document.createElement('dialog');creatorDialog.className='character-creator';creatorDialog.setAttribute('aria-label','Конструктор игрового персонажа');creatorDialog.innerHTML='<div class="toolbar"><h2>Игровой персонаж</h2><button data-close-creator>Вернуться к персонажам</button></div><iframe title="Лист игрового персонажа"></iframe>';document.body.append(creatorDialog);creatorFrame=creatorDialog.querySelector('iframe');creatorDialog.querySelector('[data-close-creator]').onclick=()=>{if(confirmFrameClose(creatorFrame))creatorDialog.close();};creatorDialog.addEventListener('cancel',e=>{e.preventDefault();creatorDialog.querySelector('[data-close-creator]').click();});creatorDialog.addEventListener('close',()=>{allowFrameLeave(creatorFrame);creatorFrame.src='about:blank';editors.clear();});}
+ editors.clear();loadToolFrame(creatorFrame,'/tools/index.html?campaign=1'+(id?'&character='+encodeURIComponent(id):''));
+ if(id)editors.set(id,creatorFrame.contentWindow);
+ setView('crew');creatorDialog.showModal();
+}
+document.querySelectorAll('[data-create-character]').forEach(b=>b.onclick=()=>openCreator());const renderCombat=combatUI(()=>state,action);
+const inventory=inventoryUI(()=>state,action);
+const locations=locationMapsUI(()=>state,action,()=>setView('locations'));
+const openLocation=spec=>locations.open(spec);
+const workshop=workshopUI(()=>state,action,openLocation);
+const openSaves=saveUI(()=>state,api,next=>{if(acceptState(state,next)){state=next;stateEtag='';render();}},()=>pendingAction||!!commandStore()?.pending);
+$('campaign-saves').onclick=()=>openSaves();
+const journey=journeyUI(()=>state,action);
+const personal=personalTurnUI(()=>state,journey.send,()=>setView('travel'));
+const journal=journalUI(()=>state);
+const dice=diceUI(()=>state,action);
+const opposed=opposedUI(()=>state,action);
+const world=worldMap(()=>state,action,()=>credentials,error,()=>journey.render(),openLocation);
+const flow=sessionFlowUI(()=>state,setView,id=>inventory.open(id));
+const medical=injuriesUI(()=>state,action,setView);
+const cold=coldUI(()=>state,action,setView);
+const water=waterUI(()=>state,action,setView);
+const afflictions=afflictionsUI(()=>state,action,setView);
+const abilities=checkAbilitiesUI(()=>state,action);
+const residents=residentServicesUI(()=>state,action);
+const scene=scenePanelUI(()=>state,action,setView,openLocation,id=>inventory.open(id));
+const feedback=playFeedbackUI(()=>state);
+const magicPanel=document.createElement('section');magicPanel.id='magicPanel';magicPanel.hidden=true;$('table').append(magicPanel);
+const magicNav=document.createElement('button');magicNav.dataset.view='magic';magicNav.textContent='Магия';document.querySelector('.workspace-nav').append(magicNav);
+let magicSignature='';
+function drawMagic(){const sig=JSON.stringify([state?.characters,state?.magicCastings,state?.magicWillpower,state?.items,state?.me,state?.medicalClock,state?.combatRevision,state?.rulePassport]);if(sig!==magicSignature){magicSignature=sig;magicPanel.innerHTML=renderMagic(state);}}
+bindMagic(magicPanel,()=>state,action,()=>{magicSignature='';if(state)drawMagic();});
+document.addEventListener('open-magic',()=>setView('magic'));
+const recap=sessionRecapUI(()=>state,action,id=>{setView('inventory');if(id)inventory.open(id);});
+const shared=tableToolsUI(()=>state,action,world,setView,openLocation);
+const quickHero=compactHeroUI(()=>state,{inventory:id=>{setView('inventory');inventory.open(id);},health:id=>medical.open(id),sheet:openCreator,token:id=>{const t=state.tokens.find(t=>t.characterId===id&&t.map==='world');if(t){setView('map');requestAnimationFrame(()=>world.focusPoint(t));}else if(state.combat?.units.some(u=>u.id===id)){setView('combat');document.dispatchEvent(new CustomEvent('focus-combat-unit',{detail:id}));}else error(Error('У героя пока нет жетона на общей карте или в текущем бою.'));}});
+const serverVersionNotice=document.createElement('p');serverVersionNotice.className='server-version-warning';serverVersionNotice.hidden=true;serverVersionNotice.setAttribute('role','status');serverVersionNotice.textContent='Сервер работает на предыдущей версии. Новые функции станут доступны после обновления сервера Мастером.';$('table').prepend(serverVersionNotice);
+const rulesPanel=document.createElement('section');rulesPanel.id='rules-panel';$('table').append(rulesPanel);
+for(const [key,title] of [['rules','Правила'],['warfare','Осада и яды']]){const button=document.createElement('button');button.dataset.view=key;button.textContent=title;document.querySelector('.workspace-nav').append(button);}
+const rulePassport=rulePassportUI(()=>state,action),warfare=warfareUI(()=>state,action);
+const campaignDesk=campaignDeskUI(()=>state,action,{navigate:setView,openCreator,openInventory:id=>inventory.open(id),openLocation,world,api});
+document.addEventListener('open-session-recap',()=>recap.open());
+document.addEventListener('open-hero-health',e=>medical.open(e.detail));
+document.addEventListener('open-hero-pride',async e=>{document.dispatchEvent(new Event('close-dice-display'));setView('inventory');await inventory.open(e.detail);const panel=document.querySelector('.pride-controls');if(panel){panel.open=true;panel.scrollIntoView({block:'center',behavior:'smooth'});}});
+function setView(next){
+ if(['workshop','desk'].includes(next)&&state?.me.role!=='gm')next='map';
+ const openTravel=next==='travel';next=openTravel?'map':next;
+ const changed=next!==view;view=next;document.body.dataset.activeView=view;sessionStorage.setItem('campaign-view',view);
+ for(const [id,v] of [['scene-panel','scene'],['magicPanel','magic'],['map-panel','map'],['crew-panel','crew'],['journal-panel','journal'],['online-combat','combat'],['inventory-panel','inventory'],['workshop-panel','workshop'],['locations-panel','locations'],['desk-panel','desk'],['codex-panel','codex'],['rules-panel','rules'],['warfare-panel','warfare']])$(id).hidden=view!==v;
+ const contentView=view==='desk'?campaignDesk.mainView():view,root=$('journey-panel'),parent=contentView==='holds'?$('table'):$('map-panel');
+ if(root.parentElement!==parent)parent.append(root);root.hidden=!['map','holds'].includes(contentView);
+ document.querySelectorAll('[data-journey-part]').forEach(el=>el.hidden=el.dataset.journeyPart!==(contentView==='map'?'travel':contentView));
+ document.querySelectorAll('[data-view]').forEach(b=>{b.classList.toggle('active',b.dataset.view===view);b.setAttribute('aria-pressed',String(b.dataset.view===view));});
+ campaignDesk.mount(view);warfare(view);
+ if(openTravel){const more=root.querySelector('.travel-details');if(more)more.open=true;root.scrollIntoView({behavior:'smooth',block:'start'});}else if(changed)window.scrollTo({top:0,behavior:'smooth'});
+ syncAudio();
+}
+
+function modeTools(){const mode=$('mode').value,gm=state?.me.role==='gm';$('paint-tools').hidden=mode!=='paint'||!gm;$('new-token-tools').hidden=mode!=='token'||!gm;$('move-tools').hidden=mode!=='move';$('hidden-cell-tools').hidden=!gm||!['paint','token'].includes(mode);$('map-route-bar').hidden=mode!=='route'||map!=='world';document.querySelectorAll('[data-world-tools]').forEach(el=>el.hidden=map!=='world');$('map-inspector').hidden=map!=='world';}
+document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));
+document.querySelectorAll('[data-open-travel]').forEach(b=>b.onclick=()=>setView('travel'));
+$('mode').onchange=()=>world.keepPosition(()=>{modeTools();world.routeHints();});$('map-advance').onclick=()=>journey.primary();$('map-route-clear').onclick=()=>journey.clear();$('map-route-undo').onclick=()=>journey.undo();
+$('map-pending').onclick=()=>{setView('travel');document.querySelector('.journey-pending')?.scrollIntoView({behavior:'smooth',block:'start'});};
+$('board').onkeydown=e=>{const cell=e.target.closest('[data-x]');if(!cell)return;if(['Enter',' '].includes(e.key)){e.preventDefault();cell.dispatchEvent(new MouseEvent('click',{bubbles:true}));}if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();const x=Math.max(0,Math.min(map==='world'?COLS-1:23,+cell.dataset.x+(e.key==='ArrowRight'?1:e.key==='ArrowLeft'?-1:0))),y=Math.max(0,Math.min(map==='world'?ROWS-1:15,+cell.dataset.y+(e.key==='ArrowDown'?1:e.key==='ArrowUp'?-1:0)));$('board').querySelector(`[data-x="${x}"][data-y="${y}"]`)?.focus();}};
+async function api(path,data){const result=await requestJson(path,{data,token:credentials?.token||'',etag:path==='state'?stateEtag:''});if(path==='state')stateEtag=result.etag;return result.body;}
+function error(e){$('error').textContent=e.message;for(const d of document.querySelectorAll('dialog[open]')){let box=d.querySelector('.editor-error');if(!box){box=document.createElement('p');box.className='editor-error';box.setAttribute('role','alert');d.append(box);}box.textContent=e.message;}}
+function rememberCredentials(){sessionStorage.setItem('campaign',JSON.stringify(credentials));localStorage.setItem('resume-'+credentials.code,credentials.resume);stateEtag='';}
+function actionLoading(data){
+ if(data.action==='combatCreate')return loading.show({theme:'battle',title:'Готовим поле боя…'});
+ if(data.action==='locationMapGenerate')return loading.show({theme:['ruins','dungeon','cave'].includes(data.settings?.kind)?'ruins':'settlement',title:'Создаём карту локации…'});
+ if(data.action==='locationMapPopulationGenerate')return loading.show({theme:'settlement',title:'Знакомимся с жителями…'});
+}
+async function action(data){if(['roll','characterRoll','combatAction','inventoryResource','inventoryRepair','injury'].includes(data.action))data={...data,visibility:state?.me.role==='gm'?$('dice-visibility').value:'public'};if(pendingAction||commandStore()?.pending){error(Error('Дождитесь подтверждения предыдущего действия в панели связи.'));recoveryState();return false;}pendingAction=true;$('save-status').textContent='Сохраняем…';const auth=credentials,loadingToken=actionLoading(data);try{const next=await commandStore().perform(data);if(auth!==credentials)return false;if(acceptState(state,next))state=next;render();$('error').textContent='';$('save-status').textContent='Сохранено';return true;}catch(e){error(e);$('save-status').textContent='Действие не подтверждено';return false;}finally{if(loadingToken!==undefined)loading.hide(loadingToken);pendingAction=false;recoveryState();}}
+async function login(create){initialLoading=true;window.ZZLoading?.show({theme:'journey',title:'Подключаемся к кампании…'});$('create').disabled=$('join').disabled=true;try{credentials=await api(create?'create':'join',{name:$('name').value,title:$('title').value,code:$('code').value,key:$('key').value,resume:localStorage.getItem('resume-'+$('code').value.toUpperCase())||''});rememberCredentials();state=null;failures=0;$('error').textContent='';await poll();}catch(e){initialLoading=false;window.ZZLoading?.fail(e.message);error(e);}finally{$('create').disabled=$('join').disabled=false;}}
+async function poll(){if(busy||!credentials)return;clearTimeout(timer);busy=true;const auth=credentials;try{let next;try{next=await api('state');}catch(e){if(e.status!==403)throw e;$('connection').textContent='Восстанавливаем вход…';const restored=await api('resume',{code:auth.code,resume:auth.resume});if(credentials!==auth)return;credentials=restored;rememberCredentials();next=await api('state');}if(acceptState(state,next)){state=next;render();}failures=0;$('connection').textContent=`Подключено · ${state?.members.length||0}/11`;await recoverAction();}catch(e){if(initialLoading){initialLoading=false;window.ZZLoading?.fail(e.message);}failures++;$('connection').textContent='Связь потеряна · повторяем подключение';if(e.status===403){error(e);$('login').hidden=false;$('table').hidden=true;$('name').value=state?.me.name||'';$('code').value=auth.code;$('key').value=auth.role==='gm'?auth.gmKey||'':'';credentials=null;sessionStorage.removeItem('campaign');}}finally{busy=false;if(credentials)timer=setTimeout(poll,document.hidden?10000:Math.min(10000,1000*2**Math.min(failures,4)));}}
+window.addEventListener('online',poll);document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll();});
+function render(){$('support-banner').hidden=!state?.me.support;if(!state)return;$('login').hidden=true;$('table').hidden=false;$('campaign').textContent=state.title;const gm=state.me.role==='gm';document.querySelectorAll('.gm').forEach(el=>el.hidden=!gm);$('invites').hidden=!gm;if(gm){$('inviteText').textContent=`Для игроков: код ${credentials.code}, ключ ${credentials.playerKey}`;$('gmText').textContent=`Ключ Мастера: ${credentials.gmKey}`;}
+ serverVersionNotice.hidden=Number(state.featureVersion)>=130;
+ $('autosave-note').textContent='Подтверждённые действия сохраняются автоматически'+(state.savedAt?' · последняя запись: '+new Date(state.savedAt*1000).toLocaleString('ru-RU'):'');
+ $('characters-empty').hidden=state.characters.length>0;
+ $('members').innerHTML=campaignParticipants(state).map(m=>`<div class="member-identity-row">${identityMarkup(m)}<span><strong>${escapeIdentity(m.name)}${m.owner===state.me.owner?' · вы':''}</strong><small>${m.role==='gm'?'Мастер':'Игрок'} · ${m.online?'в сети':'не в сети'}</small></span></div>`).join('');paintSprites($('members'),state.characters,{},state.items);
+ const crewSig=JSON.stringify([state.characters,state.me.role,state.items]);if(crewSig!==lastCrew){lastCrew=crewSig;$('characters').innerHTML=state.characters.map(c=>`<div class="character" data-character-card="${esc(c.id)}"><img class="character-thumbnail" data-sprite="${esc(c.id)}" alt=""><strong>${esc(c.name||'Без имени')}</strong><small> · ${c.kind==='monster'?'чудовище':c.kind==='npc'?'ПВ':'герой'}${c.hidden?' · скрыт':''}</small>${c.sheet?`<br>${credentials?.account&&c.kind==='pc'&&c.owner===state.me.owner?`<button data-account-capture="${esc(c.id)}">Сохранить в кабинет</button>`:''}<button data-save-character="${esc(c.id)}">Сохранить состояние</button><button data-download="${esc(c.id)}">Исходный лист JSON</button><button data-edit="${esc(c.id)}">Редактировать</button>${c.kind==='pc'?`<button data-progress="${esc(c.id)}">Развитие</button>`:''}${c.runtime?`<small><br>ТЕЛ ${c.runtime.current.str} · ЛОВ ${c.runtime.current.agi} · РАЗ ${c.runtime.current.wit} · ЭМП ${c.runtime.current.emp} · СВ ${c.runtime.wp}</small>`:''}`:''}${(c.sheet||gm)?`<button data-visual="${esc(c.id)}">Внешность</button>${c.kind!=='monster'?`<button data-inventory="${esc(c.id)}">Инвентарь</button>`:''}`:""}${gm?`<details><summary>Действия Мастера</summary><button data-actor="${esc(c.id)}">Редактор Мастера</button><button data-assign="${esc(c.id)}">Назначить игроку</button><button data-runtime="${esc(c.id)}">Состояние</button><button data-delete="${esc(c.id)}">Удалить</button></details>`:''}</div>`).join('');paintSprites($('characters'),state.characters,{},state.items);}
+ const selected=$('tokenSelect').value;$('tokenSelect').innerHTML=state.tokens.filter(t=>t.map===map&&(gm||t.owner===state.me.owner)).map(t=>`<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('');if([...$('tokenSelect').options].some(o=>o.value===selected))$('tokenSelect').value=selected;
+ const charSelect=$('tokenCharacter'),oldCharacter=charSelect.value;charSelect.innerHTML='<option value="">Без персонажа</option>'+state.characters.map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');if([...charSelect.options].some(o=>o.value===oldCharacter))charSelect.value=oldCharacter;
+ $('board').dataset.kind=map;if(map==='world')world.render();else{const boardSig=JSON.stringify([state.maps.battle,state.mapFog?.battle,state.tokens]);if(lastBoard!==boardSig||$('board').className!=='battle-map'){lastBoard=boardSig;$('board').className='battle-map';
+ const symbols={plain:'',forest:'♠',darkforest:'♣',hills:'∩',highmountain:'⛰',marsh:'≋',water:'≈',mountain:'▲',wall:'■',rough:'·',road:'',ruin:'⌂'};
+ const fog=new Set(state.mapFog?.battle||[]);
+ $('board').innerHTML=Array.from({length:384},(_,i)=>{const x=i%24,y=Math.floor(i/24),key=`${x},${y}`,cell=state.maps.battle[key]||{terrain:'plain'},hidden=fog.has(key),ts=state.tokens.filter(t=>t.map===map&&t.x===x&&t.y===y);return `<button data-x="${x}" data-y="${y}" data-terrain="${hidden&&!gm?'wall':cell.terrain}" class="${hidden?'secret':''} ${ts.length?'token':''}" title="${esc(ts.map(t=>t.name).join(', ')||`${x+1}, ${y+1}`)}" aria-label="${esc(`${x+1}, ${y+1}; ${hidden&&!gm?'скрыто':cell.terrain}; ${ts.map(t=>t.name).join(', ')}`)}">${hidden&&!gm?'?':ts.length?esc(ts[0].name.slice(0,2)):symbols[cell.terrain]}</button>`;}).join('');
+}}
+ recoveryState();journal.render();dice.render();opposed.render();
+ inventory.render();locations.render();workshop.render();renderCombat();journey.render();personal.render();flow.render();medical.render();cold.render();water.render();afflictions.render();abilities.render();residents.render();drawMagic();recap.render();shared.render();quickHero.render();scene.render();feedback.render();campaignDesk.render();rulePassport.render();modeTools();setView(view);if(initialLoading){initialLoading=false;window.ZZLoading?.hide();}
+}
+$('create').onclick=()=>login(true);$('join').onclick=()=>login(false);$('leave').onclick=async()=>{try{await api('leave',{});}catch{}sessionStorage.removeItem('campaign');window.ZZLoading?.show({theme:'menu',title:'Возвращаемся в кабинет…'});location.href=credentials?.account?'/':'/index.html';};
+document.querySelectorAll('[data-map]').forEach(b=>b.onclick=()=>{world.remember();map=b.dataset.map;$('mode').value='inspect';document.querySelectorAll('[data-map]').forEach(x=>x.classList.toggle('active',x===b));render();});
+$('board').onclick=e=>{const b=e.target.closest('[data-x]');if(!b)return;const gm=state.me.role==='gm',mode=$('mode').value,data={x:+b.dataset.x,y:+b.dataset.y,map,hidden:$('hiddenCell').checked};if(mode==='inspect'){if(map==='world'){world.inspect({x:data.x,y:data.y});journey.render();}return;}if(mode==='route'){if(!gm)return error(Error('Маршрут задаёт Мастер.'));if(map!=='world')return error(Error('Маршрут выбирается на карте путешествия.'));journey.select({x:data.x,y:data.y});return;}if(mode==='paint')action({...data,action:'paint',terrain:$('terrain').value});else {const id=mode==='move'?$('tokenSelect').value:undefined;if(mode==='move'&&!id)return error(Error('Выберите свой жетон.'));const old=state.tokens.find(t=>t.id===id);action({...data,action:'token',id,name:old?.name||$('tokenName').value,characterId:old?.characterId||$('tokenCharacter').value||undefined});}};
+$('deleteToken').onclick=()=>action({action:'deleteToken',id:$('tokenSelect').value});
+$('event').onclick=()=>journey.event();$('free-artifacts').innerHTML=artifactFields();$('free-roll-form').onsubmit=e=>{e.preventDefault();try{action({action:'roll',...Object.fromEntries(['base','skill','gear','modifier'].map(k=>[k,Number($(k).value)])),artifacts:readArtifacts(e.target)});}catch(err){error(err);}};$('chat').onsubmit=async e=>{e.preventDefault();const text=$('message').value,button=$('chat').querySelector('button');button.disabled=true;try{if(await action({action:'chat',text})&&$('message').value===text)$('message').value='';}finally{button.disabled=false;}};
+async function importSheet(raw,id,options={}){try{const sheet=validateImport(raw);if(sheet.reforged&&Object.entries(sheet.reforged).some(([k,v])=>k!=='version'&&v===true))throw Error('Модули Reforged для кампании пока не согласованы. Отключите их в конструкторе.');return await action({action:'character',id,sheet,npc:$('npc').checked,hidden:$('privateCharacter').checked,...options});}catch(e){error(e);return false;}}
+$('import').onclick=()=>$('file').click();$('file').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{if(f.size>100000)throw Error('Файл слишком большой.');const raw=JSON.parse(await f.text());if(raw.format==='forbidden-lands-save')throw Error('Это копия игрового состояния. Продолжайте игру в исходной кампании; восстановление кампании доступно Мастеру в сохранениях. Для конструктора используйте «Исходный лист JSON».');await importSheet(raw);}catch(e){error(e);}e.target.value='';};
+function assignOwner(character){const d=document.createElement('dialog');d.className='item-dialog';d.innerHTML='<form><h2>Назначить персонажа игроку</h2><label>Владелец<select name="owner"></select></label><p class="editor-error" role="alert"></p><div class="toolbar"><button>Сохранить</button><button type="button" data-cancel>Отмена</button></div></form>';const select=d.querySelector('select');for(const owner of state.owners||[]){const option=document.createElement('option');option.value=owner.owner;option.textContent=owner.name;option.selected=owner.owner===character.owner;select.append(option);}d.querySelector('[data-cancel]').onclick=()=>d.close();d.onclose=()=>d.remove();d.querySelector('form').onsubmit=async e=>{e.preventDefault();const button=d.querySelector('button');button.disabled=true;try{if(await action({action:'assignCharacter',id:character.id,owner:select.value}))d.close();}finally{button.disabled=false;}};document.body.append(d);d.showModal();}
+function characterGrowth(id){const context=()=>({character:state.characters.find(c=>c.id===id),gm:state.me.role==='gm',journey:state.journey});openProgression(context(),async data=>{if(data.operation==='refresh'){stateEtag='';const next=await api('state');if(acceptState(state,next))state=next;render();return context();}if(!await action({...data,action:'characterProgression',id}))throw Error($('error').textContent);return context();});}
+$('characters').onclick=e=>{if(e.target.dataset.progress){characterGrowth(e.target.dataset.progress);return;}if(e.target.dataset.saveCharacter){openSaves(e.target.dataset.saveCharacter);return;}if(e.target.dataset.inventory){setView('inventory');inventory.open(e.target.dataset.inventory);return;}const id=e.target.dataset.download;if(id){const c=state.characters.find(c=>c.id===id),a=document.createElement('a'),url=URL.createObjectURL(new Blob([JSON.stringify(c.sheet,null,2)],{type:'application/json'}));a.href=url;a.download='character.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}if(e.target.dataset.visual){const c=state.characters.find(c=>c.id===e.target.dataset.visual);visualEditor(c,visual=>action({action:"visual",id:c.id,visual}),state.items);}if(e.target.dataset.actor){const c=state.characters.find(c=>c.id===e.target.dataset.actor);if(c.kind!=="pc")actorEditor(c,actor=>action({action:"actor",id:c.id,actor}));else error(Error("Герой редактируется в конструкторе."));}if(e.target.dataset.edit){const edited=state.characters.find(c=>c.id===e.target.dataset.edit);if(edited.kind!=="pc"){actorEditor(edited,actor=>action({action:"actor",id:edited.id,actor}));return;}openCreator(e.target.dataset.edit);}if(e.target.dataset.assign)assignOwner(state.characters.find(c=>c.id===e.target.dataset.assign));if(e.target.dataset.runtime){const c=state.characters.find(c=>c.id===e.target.dataset.runtime),raw=prompt('ТЕЛ, ЛОВ, РАЗ, ЭМП, СВ (через запятую)',[...Object.values(c.runtime?.current||c.sheet?.attrs||{str:1,agi:1,wit:1,emp:1}),c.runtime?.wp||0].join(','));if(raw!==null){const values=raw.split(',').map(Number);action({action:'runtime',id:c.id,current:Object.fromEntries(['str','agi','wit','emp'].map((k,i)=>[k,values[i]])),wp:values[4]});}}if(e.target.dataset.delete&&confirm('Удалить персонажа из кампании?'))action({action:'deleteCharacter',id:e.target.dataset.delete});};
+window.addEventListener('message',async e=>{if(e.origin!==location.origin||!credentials||e.source!==creatorFrame?.contentWindow||!creatorDialog?.open)return;if(e.data?.type==='campaign-sheet-request'&&editors.get(e.data.id)===e.source){const c=state.characters.find(c=>c.id===e.data.id);if(c?.sheet)e.source.postMessage({type:'campaign-sheet',sheet:c.sheet,canDevelop:true},location.origin);}if(e.data?.type==='campaign-development'&&editors.get(e.data.id)===e.source){creatorDialog?.close();characterGrowth(e.data.id);return;}if(e.data?.type==='campaign-character'){if(e.data.id&&editors.get(e.data.id)!==e.source)return;const ok=await importSheet(e.data.sheet,e.data.id||undefined,{npc:false,hidden:e.data.id?!!state.characters.find(c=>c.id===e.data.id)?.hidden:false});e.source.postMessage({type:'campaign-character-result',ok,error:ok?'':$('error').textContent},location.origin);if(ok){creatorDialog?.close();setView('crew');}}});
+$("newNpc").onclick=()=>actorEditor(null,actor=>action({action:"actor",actor}),"npc");$("newMonster").onclick=()=>actorEditor(null,actor=>action({action:"actor",actor}),"monster");if(credentials)poll();
+
+$('back-account').onclick=async()=>{try{await api('leave',{});}catch{}sessionStorage.removeItem('campaign');window.ZZLoading?.show({theme:'menu',title:'Открываем личный кабинет…'});location.href='/';};
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-account-capture]');if(!b)return;b.disabled=true;try{await api('account/character',{action:'capture',code:credentials.code,character:b.dataset.accountCapture});$('save-status').textContent='Герой сохранён в личном кабинете. Дальнейшие изменения синхронизируются автоматически.';}catch(err){error(err);}finally{b.disabled=false;}});
+
+$('end-support').onclick=async()=>{try{await api('account/end-support',{});sessionStorage.removeItem('campaign');location.href='/admin.html';}catch(e){error(e);}};

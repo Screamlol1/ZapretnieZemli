@@ -1,0 +1,28 @@
+import assert from 'node:assert/strict';
+import {locationSVG,playerPlan,passageDoors} from '../public/location-render.js';
+const m={title:'<script>Название</script>',kind:'dungeon',width:760,height:560,cellSize:40,metersPerCell:5,settings:{seed:'secret-seed'},river:[],trees:[],features:[{id:'a',style:'room',shape:'rect',x:50,y:50,w:100,h:80,label:'Вход',note:'Описание',gmNote:'GM-note',secret:false},{id:'b',style:'room',shape:'rect',x:350,y:50,w:100,h:80,label:'SECRET-ROOM',note:'',gmNote:'secret',secret:true}],paths:[{style:'passage',refs:['a','b'],points:[[100,90],[400,90]]}]};
+const safe=playerPlan(m);assert.equal(safe.features.length,1);assert.equal(safe.paths.length,0);assert.equal(safe.settings,undefined);assert.equal(safe.features[0].gmNote,undefined);
+const svg=locationSVG(m,{playerView:true,interactive:false});for(const secret of ['SECRET-ROOM','GM-note','secret-seed','data-location-feature','<script>'])assert.ok(!svg.includes(secret),secret);
+assert.ok(svg.includes('&lt;script&gt;'));assert.ok(locationSVG(m).includes('SECRET-ROOM'));assert.equal(m.features.length,2);
+const bent={...m,paths:[{style:'passage',refs:['a','b'],points:[[100,90],[400,90],[400,95]]}]};
+assert.deepEqual(passageDoors(bent,m.features[0]),[{x:150,y:90,dx:1,dy:0}]);
+assert.deepEqual(passageDoors(bent,m.features[1]),[{x:350,y:90,dx:-1,dy:0}]);
+assert.deepEqual(passageDoors(playerPlan(bent),m.features[0]),[]);
+console.log('Location maps: public/export redaction, hidden passages, escaped SVG and immutable preview passed.');
+
+const manual={...m,paths:[...m.paths,{style:'wall',refs:[],points:[[10,10],[50,50]],secret:true}],tokens:[{id:'t',x:100,y:100,name:'<Hero>',kind:'pc'},{id:'s',x:200,y:100,name:'SECRET-TOKEN',secret:true}]};
+const publicManual=playerPlan(manual);assert.equal(publicManual.tokens.length,1);assert.equal(publicManual.paths.length,0);
+const exported=locationSVG(manual,{playerView:true,interactive:false});assert.ok(exported.includes('&lt;Hero&gt;'));assert.ok(!exported.includes('SECRET-TOKEN'));assert.ok(!exported.includes('data-location-token'));assert.ok(!exported.includes('data-location-path'));
+assert.ok(locationSVG(manual).includes('data-location-token="t"'));assert.equal(manual.tokens.length,2);
+
+const turned={...m,features:[{...m.features[0],rotation:90}],paths:[],tokens:[{id:'t',x:100,y:100,name:'Hero',rotation:45}],undoCount:3};
+const turnedSVG=locationSVG(turned);assert.ok(turnedSVG.includes('rotate(90 100 90)'));assert.ok(turnedSVG.includes('rotate(45 100 100)'));assert.equal(playerPlan(turned).undoCount,undefined);
+const turnedDoors=passageDoors({...turned,paths:[{style:'passage',refs:['a'],points:[[0,90],[100,90]]}]},turned.features[0]);assert.ok(Math.abs(turnedDoors[0].x-60)<1e-8);assert.ok(Math.abs(turnedDoors[0].y-90)<1e-8);
+
+const {locationPaths,nearestLinePoint}=await import('../public/location-paths.js');
+const junction={...m,features:[],paths:[{style:'road',refs:[],points:[[10,100],[200,100]]},{style:'road',refs:[],points:[[100,10],[100,200]]},{style:'wall',refs:[],points:[[50,50],[200,50]]}]};
+const shared=locationPaths(junction,false);assert.equal((shared.match(/stroke="url\(#location-earth\)"/g)||[]).length,1);assert.ok(shared.indexOf('location-earth')<shared.indexOf('location-stone'));
+assert.equal(locationPaths({...junction,paths:[...junction.paths].reverse()},false).replace(/d="[^"]*"/g,''),shared.replace(/d="[^"]*"/g,''));
+assert.deepEqual(nearestLinePoint(junction.paths,[97,102]),[97,100]);assert.deepEqual(nearestLinePoint(junction.paths,[198,103]),[200,100]);assert.equal(nearestLinePoint(junction.paths,[700,700]),null);
+const doorRoom={...m.features[0],rotation:45},diagonalMap={...m,features:[doorRoom],paths:[{style:'passage',refs:['a'],points:[[500,170],[100,90]]}]};
+const door=passageDoors(diagonalMap,doorRoom)[0];assert.ok(Math.abs(door.dx-400/Math.hypot(400,80))<1e-8);assert.ok(Math.abs(door.dy-80/Math.hypot(400,80))<1e-8);

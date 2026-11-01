@@ -1,0 +1,5 @@
+export function combatAbilityDice(r){
+ if(r.kind==='dwarf')return `<p>Упорство: дополнительный риск стоит 1 СВ. Доступно ${r.wp} СВ. Сохраняются шестёрки и единицы характеристики/снаряжения; последствия применяются снова по итоговым единицам.</p><div class="toolbar"><button data-risk-push>Упорство · риск за 1 СВ</button><button data-risk-accept>Принять результат</button></div><p data-risk-error role="alert"></p>`;
+ if(!['avoid','orc'].includes(r.kind))return null;
+ return `<p>${r.kind==='avoid'?'Неуловимость: 1 СВ отменяет один успех физической атаки до броска брони.':'Несокрушимость: 1 СВ восстанавливает одно очко сломленной характеристики. Критические травмы сохраняются.'}</p><label>${r.kind==='avoid'?'Отменить успехов':'Восстановить очков'}<input data-ability-wp type="number" min="1" max="${r.maximum}" value="${Math.min(1,r.maximum)}"></label><p class="muted">Доступно ${r.wp} СВ; максимум для этого эффекта — ${r.maximum}.</p><div class="toolbar"><button data-risk-push>Применить способность</button><button data-risk-accept>Без способности</button></div><p data-risk-error role="alert"></p>`;
+}

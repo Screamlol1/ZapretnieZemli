@@ -1,0 +1,105 @@
+name: Verify and build Windows installer
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+      - 'desktop-v*'
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
+      - name: Install locked browser-test dependencies
+        run: npm ci
+      - name: Check rules and battle engine
+        run: npm test
+      - name: Check campaign server
+        run: python -m unittest discover -s tests -v
+      - name: Install the pinned Chromium browser
+        run: npx playwright install chromium
+      - name: Check isolated browser journeys on Windows
+        run: npm run test:e2e
+      - name: Install locked Electron build dependencies
+        run: npm --prefix desktop ci
+      - name: Prepare and verify the bundled runtimes
+        run: npm --prefix desktop run prepare:runtime
+      - name: Check desktop lifecycle and real bundled runtimes
+        run: npm --prefix desktop test
+      - name: Check native settings and browser crossplay
+        run: npm run test:e2e:desktop
+      - name: Build NSIS installer without publishing a release
+        run: npm --prefix desktop run dist -- --publish never
+      - name: Verify version before tagged release
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        shell: pwsh
+        run: |
+          $version = (Get-Content -Raw desktop/package.json | ConvertFrom-Json).version
+          if ($env:GITHUB_REF_NAME -ne "desktop-v$version") { throw 'Release tag does not match desktop package version.' }
+      - name: Write installer checksum
+        shell: pwsh
+        run: |
+          $artifactDir = Join-Path $env:GITHUB_WORKSPACE '..\outputs\windows'
+          $installers = @(Get-ChildItem -LiteralPath $artifactDir -Filter 'ZapretnieZemli-Setup-*.exe' -File)
+          if ($installers.Count -ne 1) { throw "Expected one installer, found $($installers.Count)." }
+          $hash = Get-FileHash -LiteralPath $installers[0].FullName -Algorithm SHA256
+          "$($hash.Hash.ToLowerInvariant())  $($installers[0].Name)" | Set-Content -LiteralPath (Join-Path $artifactDir 'SHA256SUMS.txt') -Encoding ascii
+      - name: Upload installer for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-${{ github.run_number }}
+          path: |
+            ${{ github.workspace }}/../outputs/windows/ZapretnieZemli-Setup-*.exe
+            ${{ github.workspace }}/../outputs/windows/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+      - name: Keep browser diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-browser-report-${{ github.run_attempt }}
+          path: |
+            playwright-report/
+            test-results/
+            playwright-desktop-report/
+            test-results-desktop/
+          if-no-files-found: warn
+          retention-days: 14
+  release:
+    if: startsWith(github.ref, 'refs/tags/desktop-v')
+    needs: windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-installer-${{ github.run_number }}
+          path: release
+      - name: Publish verified Windows installer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          cd release
+          sha256sum -c SHA256SUMS.txt
+          gh release create "$RELEASE_TAG" ZapretnieZemli-Setup-*.exe SHA256SUMS.txt --verify-tag --title "Запретные Земли ${RELEASE_TAG#desktop-v}" --generate-notes

@@ -1,0 +1,9 @@
+# Replace example.org only after registering your domain and setting its DNS A record.
+example.org {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:8789 {
+        # Overwrite any client-supplied value. The game trusts this header only
+        # from loopback in --public-test mode. Caddy must face the internet directly.
+        header_up CF-Connecting-IP {remote_host}
+    }
+}

@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import {definitions,compile,rollTable,rollField} from '../public/workshop-tables.js';
+for(const definition of Object.values(definitions))for(const field of definition.fields)assert.ok(compile(field.table).size);
+const size=definitions.settlement.fields.find(f=>f.id==='size').table;
+assert.match(rollTable(size,()=>1).value,/5–20/);assert.match(rollTable(size,()=>5).value,/20–100/);assert.match(rollTable(size,()=>6).value,/100–400/);
+let dice=[2,6];assert.equal(rollTable({name:'Test',dice:'D66',source:'test',rows:'11-25 | A\n26-66 | B'},()=>dice.shift()).value,'B');
+for(const rows of ['1-3 | missing','1-6 | all\n2 | duplicate','0-6 | invalid'])assert.throws(()=>compile({dice:'D6',rows}));
+let count=0;const inn=rollField('settlement','institutions',{fields:{size:'Деревня · 100–400 жителей'},tables:{}},()=>{count++;return 1;});assert.equal(count,13);assert.equal(inn.value.split('; ').length,6);
+const custom=rollField('event','title',{fields:{},tables:{title:{name:'Mine',source:'GM',dice:'D6',rows:'1-6 | Свой результат'}}},()=>4);assert.equal(custom.value,'Свой результат');assert.match(custom.trace,/4/);
+console.log('Workshop: official settlement ranges, D66 tens/units, institution counts and custom table validation passed.');

@@ -1,0 +1,33 @@
+import {canPushPool} from './dice-pools.js';
+const repeatData=(c,r)=>repeatDwarf(c,r)?{kinRepeat:true,kinAttempt:r.kinPushes||0,kinWP:c.runtime.wp}:{};
+const repeatDwarf=(c,r)=>!!(r?.pushed&&!r.accepted&&c.kind==='pc'&&c.sheet?.kin==='dwarf'&&!c.runtime?.dead&&Object.values(c.runtime?.current||{}).every(n=>n>0)&&c.runtime?.wp>0&&canPushPool({...r,skill:r.skillDice,artifact:[...(r.artifacts||[]),...(Array.isArray(r.artifact)?r.artifact:[]).map(value=>({sides:r.sides,value}))]}));
+export function riskAction(s,e){
+ const r=e?.risk;if(!r||!s)return null;
+ const c=s.characters.find(c=>c.id===r.character),gm=s.me.role==='gm';
+ if(r.action==='free')return (gm&&e.private||r.owner===s.me.owner)&&s.freeRisk?.roll===r.roll?{action:'freePush',roll:r.roll}:null;
+ if(!c||!gm&&(c.owner!==s.me.owner||c.kind!=='pc')||e.private&&!gm)return null;
+ if(r.action==='opposed'){
+  const pair=s.opposedChecks?.find(p=>p.id===r.opposed),check=e.private?s.gmChecks?.[c.id]:c.runtime?.lastCheck;
+  if(check?.current===false||check?.diceEvent&&check.diceEvent!==e.id)return null;
+  const repeat=repeatDwarf(c,check);return pair&&!pair.done&&pair.attacker.rolled&&pair.defender.rolled&&check?.id===r.roll?{action:'opposedPush',id:r.opposed,...(repeat?{kinRepeat:true,kinAttempt:check.kinPushes||0,kinWP:c.runtime.wp}:{}),pushAvailable:check.pushAvailable!==false&&(!check.pushed||repeat)}:null;
+ }
+ if(r.action==='combat')return s.combat?.pendingRisk?.id===r.roll?{action:'combatAction',revision:s.combatRevision,command:{action:'risk',roll:r.roll,push:true},pushAvailable:s.combat.pendingRisk.pushAvailable!==false}:null;
+ if(r.action==='journey'){const p=s.journeyRisk;return p?.id===r.roll&&(!p.diceEvent||p.diceEvent===e.id)?{action:'travelRisk',roll:r.roll,push:true,diceEvent:e.id,pushAvailable:p.roll?.pushAvailable!==false&&(!p.roll?.pushed||repeatDwarf(c,p.roll)),...repeatData(c,p.roll)}:null;}
+ if(r.action==='expedition'){const p=s.expeditionCheck;return p&&!p.waiting&&p.id===r.roll&&p.diceEvent===e.id?{action:'expedition',op:'push',roll:r.roll,diceEvent:e.id,revision:s.journey.revision,pushAvailable:p.roll?.pushAvailable!==false&&(!p.roll?.pushed||repeatDwarf(c,p.roll)),...repeatData(c,p.roll)}:null;}
+ if(r.action==='cold'){const p=s.coldCheck;return p&&!p.waiting&&p.character===c.id&&p.id===r.roll&&p.diceEvent===e.id?{action:'coldExposure',op:'push',character:c.id,roll:r.roll,pushAvailable:p.roll?.pushAvailable!==false&&(!p.roll?.pushed||repeatDwarf(c,p.roll))&&p.canPush!==false,...repeatData(c,p.roll)}:null;}
+ if(r.action==='water'){const p=s.waterCheck;return p&&!p.waiting&&p.character===c.id&&p.id===r.roll&&p.diceEvent===e.id?{action:'waterExposure',op:'push',character:c.id,roll:r.roll,pushAvailable:p.roll?.pushAvailable!==false&&(!p.roll?.pushed||repeatDwarf(c,p.roll)),...repeatData(c,p.roll)}:null;}
+ if(r.action==='treatment'){const p=s.treatment;return p?.healer===c.id&&p.roll?.id===r.roll?{action:'injury',op:'push',roll:r.roll,pushAvailable:p.roll.pushAvailable!==false&&(!p.roll.pushed||repeatDwarf(c,p.roll))&&canPushPool({...p.roll,skill:p.roll.skillDice,artifact:p.roll.artifacts}),...repeatData(c,p.roll)}:null;}
+ if(r.action==='repair'){
+  const item=s.items?.find(i=>i.id===r.item),p=item?.repair;
+  return p?.status==='rolled'&&p.roll?.id===r.roll?{action:'inventoryRepair',op:'push',id:item.id,version:item.version,roll:r.roll,pushAvailable:p.roll.pushAvailable!==false&&(!p.roll.pushed||repeatDwarf(c,p.roll))&&canPushPool({...p.roll,skill:p.roll.skillDice,artifact:p.roll.artifacts}),...repeatData(c,p.roll)}:null;
+ }
+ if(r.action==='affliction'){const p=s.afflictionCheck;return p&&!p.waiting&&p.id===r.roll&&p.diceEvent===e.id?{action:'affliction',op:'accept',character:c.id,roll:r.roll,pushAvailable:false}:null;}
+ if(r.action==='character'){
+  const check=e.private?s.gmChecks?.[c.id]:c.runtime?.lastCheck;
+  if(check?.current===false||check?.diceEvent&&check.diceEvent!==e.id)return null;
+  const repeat=repeatDwarf(c,check);
+  if(check?.id!==r.roll||check.accepted||['setup','combat'].includes(s.combat?.phase)&&s.combat.units.some(u=>u.id===c.id)||s.journey.phase==='resolving'&&s.journey.party.includes(c.id))return null;
+  return {action:'characterPush',character:c.id,roll:r.roll,pushAvailable:check.pushAvailable!==false&&(!check.pushed||repeat),...(repeat?{kinRepeat:true,kinAttempt:check.kinPushes||0,kinWP:c.runtime.wp}:{})};
+ }
+ return null;
+}

@@ -1,0 +1,61 @@
+name: Rules, server and browser journeys
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check rules and local battle engine
+        run: node rules-tests/all.mjs
+      - name: Install FFmpeg for real audio-processing tests
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Check campaign server and 11 connections
+        run: python -m unittest discover -s tests -v
+        env:
+          ZZ_FFMPEG: ${{ runner.os == 'Linux' && 'ffmpeg' || '' }}
+      - name: Check desktop policies, preferences and lifecycle
+        run: npm --prefix desktop test
+        # The embedded-runtime integration suite runs in the Windows build job.
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - name: Install the pinned Chromium browser and Linux dependencies
+        run: npx playwright install --with-deps chromium
+      - name: Check isolated browser journeys
+        run: npm run test:e2e
+      - name: Keep the HTML report and failure traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chromium-e2e-${{ github.run_attempt }}
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: warn
+          retention-days: 14
