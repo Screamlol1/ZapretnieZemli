@@ -22,7 +22,7 @@ header{padding:15px 3%;gap:16px}.sigil{font-size:36px}header h1{font-size:28px}m
 
 
 
-#save-status:not(:empty){position:fixed;right:16px;bottom:16px;z-index:30;padding:8px 12px;border:1px solid var(--line);border-radius:5px;background:#19281f;color:#e5d6ac;font-size:13px;box-shadow:0 3px 16px #0006;pointer-events:none}
+#save-status:not(:empty){position:static;flex:1 1 100%;box-sizing:border-box;max-width:100%;padding:8px 12px;border-left:2px solid var(--line);border-radius:3px;background:#19281f;color:#e5d6ac;font-size:13px;overflow-wrap:anywhere}
 
 #board.world-map{user-select:none;-webkit-user-select:none}.board-wrap.can-pan:has(.world-map),.can-pan .world-map .map-cell{cursor:grab}.board-wrap.map-dragging:has(.world-map),.map-dragging .world-map .map-cell{cursor:grabbing}
 

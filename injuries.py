@@ -36,6 +36,11 @@ def modifiers(c,skill,attribute):
 def blocked(c):
     return bool(c.get('runtime',{}).get('dead') or any(i.get('overdue') or i.get('mechanics',{}).get('incapacitated') for i in active(c)) or c.get('runtime',{}).get('meditation'))
 
+
+def recovery_blocked(c,attribute):
+    flags=c.get('runtime',{}).get('conditions',{})
+    return bool(flags.get('thirsty') or attribute=='str' and flags.get('hungry') or attribute=='wit' and flags.get('sleepy') or attribute in ('str','wit') and flags.get('cold'))
+
 def check_allowed(c):
     if blocked(c):raise ValueError('Персонаж сейчас не может действовать: проверьте травмы или медитацию.')
     if any(v<=0 for v in current(c).values()):raise ValueError('Сломленный персонаж не может выполнять проверки. Сначала нужна помощь или восстановление.')
@@ -111,7 +116,7 @@ def reconcile(room,before,data):
                     pair=next((p for p in room.get('opposedChecks',[]) if p['id']==data.get('id')),None)
                     actor=pair.get('attacker',{}).get('character') if pair else None
                 is_push=not actor or actor==c['id']
-            condition=action.startswith('travel') and not event
+            condition=(action.startswith('travel') or action=='coldExposure') and not event
             if is_push or condition or replayed:continue
             pending_injury(room,c,attr,event.get('table') if event else None)
             resolved_events.add(attr)
@@ -129,6 +134,8 @@ def reconcile(room,before,data):
 def advance(room,minutes):
     if type(minutes) not in (int,float) or not math.isfinite(minutes) or not 0<=minutes<=525600:
         raise ValueError('Укажите прошедшее игровое время от 0 до 525600 минут.')
+    from cold_exposure import overdue,due
+    if minutes and overdue(room):raise ValueError('Сначала разрешите наступившие проверки холода, затем продолжайте игровое время.')
     room['medicalClock']=round(now(room)+minutes,4)
     for c in room['characters']:
         if c['kind']=='monster':continue
@@ -150,6 +157,7 @@ def advance(room,minutes):
         if rt.get('dead') or blocked(c):continue
         for attr,episode in list(rt.get('brokenRecovery',{}).items()):
             if now(room)>=episode['due']:
+                if recovery_blocked(c,attr) or attr in ('str','wit') and due(room,c):continue
                 if cur.get(attr,0)<=0:cur[attr]=1;log(room,c,f'самостоятельное восстановление: {NAMES[attr]} 1.')
                 del rt['brokenRecovery'][attr]
         sync_battle(room,c)
@@ -209,6 +217,7 @@ def begin_treatment(room,s,data):
     if purpose=='recover':
         if healer['id']==target['id'] or attr not in ATTRS or current(target)[attr]>0:
             raise ValueError('Помощь нужна другому персонажу со сломленной характеристикой.')
+        if recovery_blocked(target,attr):raise ValueError('Состояние голода, жажды, недосыпа или холода пока не позволяет восстановить эту характеристику.')
         episode=target['runtime'].setdefault('brokenRecovery',{}).setdefault(attr,dict(id=secrets.token_hex(8),due=now(room)+die()*60,attempts=[]))
         attempted=episode['attempts'];skill='heal' if attr in ('str','agi') else 'perform'
         penalty=0

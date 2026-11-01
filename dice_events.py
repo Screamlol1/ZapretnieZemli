@@ -42,6 +42,8 @@ def publish(room, name, label, groups, result, private=False, message=None, risk
                (c.get('runtime',{}).get('lastCheck'),room.get('gmChecks',{}).get(c['id'])) if r and not r.get('accepted')}
     treatment=room.get('treatment',{}).get('roll',{})
     if treatment.get('id'):pending.add(treatment['id'])
+    cold=room.get('coldCheck',{})
+    if cold.get('id'):pending.add(cold['id'])
     for item in room.get('items',[]):
         repair=item.get('repair',{})
         if repair.get('status')=='rolled':pending.add(repair['roll']['id'])

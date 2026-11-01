@@ -1,5 +1,13 @@
 # Художественное направление и промпты
 
+## Зимний переход — 1 ноября 2026
+
+Новая иллюстрация создана встроенным ImageGen, без референса и без прозрачного фона. Файл: `public/assets/winter-exposure-v1.png`. Панорама используется в панели холода. Символы характеристик и состояний карточки героя выполнены собственными SVG-контурами; предметы используют уже существующие игровые атласы.
+
+Промпт:
+
+> Create an original panoramic illustration for a Russian dark low-fantasy tabletop RPG web app, used as a winter exposure panel backdrop. Wide landscape 2:1. Hand painted ink and restrained watercolor on warm aged parchment, intricate fine crosshatching, muted deep evergreen and charcoal, pale icy blue snow, subdued antique gold accents. A small band of fully clothed travelers in heavy weathered wool cloaks crosses a snowy conifer pass; very small figures against sweeping wilderness, a single distant warm campfire beneath a rock shelter, bare branches and windblown snow. No recognizable existing copyrighted characters, no text, no logos, no UI, no border, not pixel art, not glossy 3D. Scene readable as a slim wide banner, main interest center/right, low detail darker left portion suitable for UI title overlay. Atmospheric dangerous cold but no gore. High quality book illustration, coherent perspective and proportions.
+
 Использован встроенный ImageGen, режим редактирования по стилистическим образцам. Сохранены исходные версии атласов; новые файлы имеют суффикс v2.
 
 Общее: подробный пиксельный стиль тёмного средневекового фэнтези, приглушённые земляные цвета, освещение сверху слева, тактический ракурс в три четверти, жёсткие края и единый масштаб. Никаких надписей, линий сетки или фона. Четыре равных столбца и четыре строки с прозрачностью. Человек и эльф примерно шесть голов в высоту, дварф и полурослик ниже; взрослые пропорции без чрезмерно больших голов. Персонажи целиком находятся в своей клетке, ступни привязаны к общей нижней линии. Между позами сохраняется личность и одежда.

@@ -95,6 +95,8 @@ def participants(room):
 
 def try_cycle(room):
     t=state(room)
+    from cold_exposure import overdue
+    if room.get('coldCheck') or overdue(room):return
     if room.get('journeyRisk') or not t['automatic'] or not t['party']:return
     if t['phase']=='planning' and t['gmReady'] and not t['pending'] and all(cid in t['plans'] for cid in t['party']):
         # Validate and execute on a copy: a bad route never commits partial rolls or damage.

@@ -47,15 +47,17 @@ export function diceUI(getState,action){
   if(armor!==undefined&&box.querySelector('[data-power-armor]'))box.querySelector('[data-power-armor]').checked=armor;if(damage!==undefined&&box.querySelector('[data-power-damage]'))box.querySelector('[data-power-damage]').value=damage;
   const s=getState(),hero=s?.characters.find(c=>c.id===current?.risk?.character),check=current?.private?s?.gmChecks?.[hero?.id]:hero?.runtime?.lastCheck;
   if(cmd&&current.risk.action==='character'&&(check?.prideAvailable||hero?.runtime?.prideRequest))box.insertAdjacentHTML('beforeend','<button type="button" data-open-pride>Гордость · дополнительный D12</button>');
+  if(cmd&&current.risk.action==='cold'&&s.coldCheck?.canForest)box.insertAdjacentHTML('beforeend','<button type="button" data-open-cold>Путь леса · к решению</button>');
   box.querySelectorAll('button').forEach(b=>b.disabled=riskBusy||stage.dataset.phase==='rolling'||b.hasAttribute('data-risk-push')&&cmd?.pushAvailable===false);
  }
  stage.addEventListener('click',async e=>{
+  if(e.target.closest('[data-open-cold]')){const id=current?.risk?.character;queue=[];hide();document.dispatchEvent(new CustomEvent('open-hero-cold',{detail:id}));return;}
   if(e.target.closest('[data-open-pride]')){const id=current?.risk?.character;queue=[];hide();document.dispatchEvent(new CustomEvent('open-hero-pride',{detail:id}));return;}
   const push=e.target.closest('[data-risk-push]'),accept=e.target.closest('[data-risk-accept]');if(!push&&!accept||riskBusy)return;
   const cmd=riskAction(getState(),current);if(!cmd)return renderRisk();
   if(current.risk.kind==='power')cmd.command.power={ignoreArmor:!!push&&stage.querySelector('[data-power-armor]').checked,damage:push?Number(stage.querySelector('[data-power-damage]')?.value||0):0};
   if(['avoid','orc'].includes(current.risk.kind))cmd.command.wp=push?Number(stage.querySelector('[data-ability-wp]')?.value||0):0;
-  if(accept){if(cmd.action==='injury')cmd.op='accept';else if(cmd.action==='inventoryRepair')cmd.op='accept';else if(cmd.action==='combatAction')cmd.command.push=false;else if(cmd.action==='travelRisk')cmd.push=false;else cmd.action=cmd.action==='opposedPush'?'opposedAccept':cmd.action==='freePush'?'freeAccept':'characterAccept';}
+  if(accept){if(cmd.action==='injury'||cmd.action==='coldExposure')cmd.op='accept';else if(cmd.action==='inventoryRepair')cmd.op='accept';else if(cmd.action==='combatAction')cmd.command.push=false;else if(cmd.action==='travelRisk')cmd.push=false;else cmd.action=cmd.action==='opposedPush'?'opposedAccept':cmd.action==='freePush'?'freeAccept':'characterAccept';}
   riskBusy=true;renderRisk();let ok=false;
   try{ok=await action(cmd);}finally{riskBusy=false;renderRisk();}
   if(ok){next();}else{const error=stage.querySelector('[data-risk-error]');if(error)error.textContent=document.getElementById('error')?.textContent||'Не удалось сохранить выбор. Повторите.';}

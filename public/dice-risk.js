@@ -12,6 +12,7 @@ export function riskAction(s,e){
  }
  if(r.action==='combat')return s.combat?.pendingRisk?.id===r.roll?{action:'combatAction',revision:s.combatRevision,command:{action:'risk',roll:r.roll,push:true}}:null;
  if(r.action==='journey')return s.journeyRisk?.id===r.roll?{action:'travelRisk',roll:r.roll,push:true}:null;
+ if(r.action==='cold'){const p=s.coldCheck;return p&&!p.waiting&&p.character===c.id&&p.id===r.roll&&p.diceEvent===e.id?{action:'coldExposure',op:'push',character:c.id,roll:r.roll,pushAvailable:p.roll?.pushAvailable!==false&&!p.roll?.pushed&&p.canPush!==false}:null;}
  if(r.action==='treatment'){const p=s.treatment;return p?.healer===c.id&&p.roll?.id===r.roll?{action:'injury',op:'push',roll:r.roll,pushAvailable:p.roll.pushAvailable!==false&&!p.roll.pushed&&canPushPool({...p.roll,skill:p.roll.skillDice,artifact:p.roll.artifacts})}:null;}
  if(r.action==='repair'){
   const item=s.items?.find(i=>i.id===r.item),p=item?.repair;

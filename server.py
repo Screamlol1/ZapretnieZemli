@@ -14,6 +14,7 @@ from dice_events import publish as publish_dice, group as dice_group, visibility
 import argparse
 import pride
 import check_state
+import cold_exposure
 import action_receipts
 import base64
 import binascii
@@ -173,6 +174,7 @@ class Game:
         injuries.redact(room,s)
         session_recap.public(room,s)
         check_state.project(room)
+        cold_exposure.project(room,s)
         room['maps']['world']=effective_world(room)
         room['mapTerrain']={'referenceCount':len(room.get('_worldBase',{}))}
         room.pop('_worldBase',None)
@@ -258,6 +260,8 @@ class Game:
         previous_logs={id(entry) for entry in room['log']}
         action = data.get('action')
         gm = s['role']=='gm'
+        if room.get('coldCheck') and action not in ('coldExposure','chat','roll','freePush','freeAccept'):
+            raise ValueError('Сначала завершите проверку холода: примите результат, пойдите на риск или используйте Путь леса.')
         if room.get('treatment') and action not in ('injury','chat','roll','freePush','freeAccept','tableTool'):
             raise ValueError('Сначала завершите лечение: примите результат или пойдите на риск.')
         if room.get('treatment') and action=='tableTool' and data.get('op')=='completeFor':
@@ -280,6 +284,8 @@ class Game:
             raise PermissionError('Действие доступно только Мастеру.')
         if action=='injury':
             injuries.apply(room,s,data)
+        elif action=='coldExposure':
+            cold_exposure.apply(room,s,data)
         elif action=='characterPride':
             pride.apply(room,s,data)
         elif action=='characterAbility':
