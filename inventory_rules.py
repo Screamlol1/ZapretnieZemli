@@ -3,6 +3,7 @@ import json
 import math
 import secrets
 import subprocess
+from node_runtime import run_node
 from pathlib import Path
 from equipment_rules import prepare, slot, clear_slots, WEAPONS
 
@@ -75,7 +76,7 @@ def ensure(room,cid):
     if c.get('inventoryInitialized'):
         prepare(room,c);return
     try:
-        result=subprocess.run(['node',str(Path(__file__).with_name('inventory-data.mjs'))],input=json.dumps(c),text=True,capture_output=True,encoding='utf-8',timeout=8)
+        result=run_node([str(Path(__file__).with_name('inventory-data.mjs'))],input=json.dumps(c),text=True,capture_output=True,encoding='utf-8',timeout=8)
         if result.returncode:raise ValueError('Не удалось перенести стартовое снаряжение в инвентарь.')
         initial_data=json.loads(result.stdout);initial=initial_data['items']
     except (OSError,subprocess.TimeoutExpired):raise ValueError('Для переноса стартового снаряжения необходим Node.js.')

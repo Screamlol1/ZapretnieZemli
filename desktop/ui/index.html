@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Запретные Земли</title>
+  <link rel="stylesheet" href="home.css">
+  <script defer src="home.js"></script>
+</head>
+<body>
+  <header class="brand">
+    <img src="app-icon.svg" width="66" height="66" alt="">
+    <div class="brand-copy"><span class="eyebrow">ВАШ ИГРОВОЙ СТОЛ</span><h1>Запретные Земли</h1><p>Мастер и до десяти игроков — в одной кампании.</p></div>
+    <span class="version" id="version" aria-label="Версия приложения"></span>
+  </header>
+  <main>
+    <div class="welcome"><h2>Где сегодня приключение?</h2><p>Играйте вместе из приложения и браузера. Всем участникам нужны адрес одного сервера и приглашение в кампанию.</p></div>
+    <section class="entry-grid" aria-label="Выбор игры">
+      <article class="entry-card host-card">
+        <div class="card-top"><span class="card-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M7 27V13h5V7h8v6h5v14M5 13V8h5m12 0h5v5M12 27v-8h8v8M5 27h22M16 7V3l6 2-6 2"/></svg></span><span class="status" id="server-status" role="status">Готово к запуску</span></div>
+        <h3>Моя игра на этом компьютере</h3><p>Создавайте кампании и героев, продолжайте сохранённые приключения. Для совместной игры включите доступ через интернет.</p>
+        <button id="start-local" class="primary" type="button"><span id="start-local-label">Открыть мою игру</span><span aria-hidden="true">↗</span></button>
+        <p class="small-note">Сохранения останутся на этом компьютере.</p>
+      </article>
+      <article class="entry-card join-card">
+        <div class="card-top"><span class="card-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M5 25l6-18 9 6 7-6v18l-7 4-9-5-6 1M11 7v17m9-11v16M3 3l4 2-4 2"/></svg></span><span class="eyebrow">ДРУГОЙ СЕРВЕР</span></div>
+        <h3>Подключиться к игре</h3><p>Вставьте ссылку Мастера. Ваши кампании и персонажи откроются после входа на его сервер.</p>
+        <form id="join-form"><label for="server-url">Адрес игры</label><div class="join-input"><input id="server-url" name="url" type="url" inputmode="url" placeholder="https://…" autocomplete="url" spellcheck="false" required><button id="connect" type="submit">Подключиться</button></div></form>
+        <details id="recent-wrap" hidden><summary>Недавние подключения</summary><div id="recent-list" class="recent-list"></div></details>
+      </article>
+    </section>
+    <div id="feedback" class="feedback" role="status" aria-live="polite" hidden></div>
+    <div id="error" class="error" role="alert" hidden></div>
+    <section class="hosting-panel" id="hosting-panel" aria-labelledby="sharing-title" hidden>
+      <div class="section-heading"><div><span class="eyebrow">ВАШ СЕРВЕР</span><h3 id="sharing-title">Пригласить за стол</h3></div><span class="status" id="sharing-status">Доступ с этого компьютера</span></div>
+      <p>Отправьте участникам общую ссылку, а затем код и ключ приглашения из меню кампании. Установка приложения игрокам не обязательна.</p>
+      <div id="local-address" class="address-row" hidden><label for="local-url">Адрес на этом компьютере</label><div class="address-controls"><input id="local-url" type="text" readonly aria-label="Локальный адрес игры"><button id="copy-local" type="button">Копировать</button><button id="open-browser" type="button">В браузере</button></div></div>
+      <div id="share-address" class="address-row share-address" hidden><label for="share-url">Ссылка для всех участников</label><div class="address-controls"><input id="share-url" type="text" readonly aria-label="Общая ссылка на игру"><button id="copy-share" class="primary" type="button">Скопировать ссылку</button></div><p class="small-note">Ссылка действует, пока включён доступ и работает приложение. При следующем включении адрес может измениться.</p></div>
+      <div class="sharing-actions"><button id="start-sharing" type="button" class="primary">Пригласить через интернет</button><button id="stop-sharing" type="button" hidden>Выключить общий доступ</button><span id="sharing-progress" class="small-note" role="status"></span></div>
+    </section>
+    <details class="data-panel"><summary><span>Сохранения и резервные копии</span><span aria-hidden="true">⌄</span></summary><div class="data-body"><p>Кампании, учётные записи и загруженные карты хранятся отдельно от программы и сохраняются при её обновлении.</p><code id="data-path">Загружаем путь…</code><div class="data-actions"><button id="open-data" type="button">Открыть папку сохранений</button><button id="backup" type="button">Создать резервную копию…</button></div><p class="small-note">Прежние кампании доступны на том сервере, где они созданы. Для игры на нём воспользуйтесь подключением по ссылке.</p></div></details>
+  </main>
+  <footer><span class="footer-sigil" aria-hidden="true">✦</span><p>При закрытии приложения ваша локальная игра и общий доступ остановятся. Игра на чужом сервере продолжится.</p></footer>
+</body>
+</html>

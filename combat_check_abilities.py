@@ -5,7 +5,7 @@ the die. Replay preserves all previous dice and applies no damage twice.
 """
 import copy
 import json
-import subprocess
+from node_runtime import run_node
 from pathlib import Path
 from dice_events import publish
 from equipment_rules import sync_wear
@@ -28,7 +28,7 @@ def apply_pride(room,c,ctx,value,hits):
     clone=copy.deepcopy(battle);replay=clone['pendingRisk']['replay']
     replay.setdefault('prides',{})[str(p['step'])]=dict(value=value,hits=hits)
     command=dict(action='risk',roll=p['id'],push=False,interactive=True)
-    result=subprocess.run(['node',str(Path(__file__).with_name('combat-engine.mjs'))],input=json.dumps(dict(battle=clone,command=command)),text=True,capture_output=True,encoding='utf-8',timeout=10)
+    result=run_node([str(Path(__file__).with_name('combat-engine.mjs'))],input=json.dumps(dict(battle=clone,command=command)),text=True,capture_output=True,encoding='utf-8',timeout=10)
     if result.returncode:raise ValueError(result.stderr or 'Не удалось применить гордость в бою.')
     updated=json.loads(result.stdout);room['combat']=updated
     if updated.get('pendingRisk'):updated['pendingRisk']['private']=private

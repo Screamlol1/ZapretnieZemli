@@ -32,6 +32,7 @@ import mimetypes
 import secrets
 import sqlite3
 import subprocess
+from node_runtime import run_node
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer as HTTPServerBase
@@ -418,7 +419,7 @@ class Game:
             old=next((c for c in room['characters'] if c['id']==data.get('id')),None)
             if old and old['kind']=='pc':raise ValueError('Герой редактируется в конструкторе.')
             if room.get('combat',{}).get('phase')=='combat':raise ValueError('Редактор параметров доступен вне активного боя.')
-            try:checked=subprocess.run(['node',str(ROOT/'validate-actor.mjs')],input=json.dumps(data.get('actor')),text=True,encoding='utf-8',capture_output=True,timeout=8)
+            try:checked=run_node([str(ROOT/'validate-actor.mjs')],input=json.dumps(data.get('actor')),text=True,encoding='utf-8',capture_output=True,timeout=8)
             except (OSError,subprocess.TimeoutExpired):raise ValueError('Редактор недоступен: проверьте Node.js.')
             if checked.returncode:raise ValueError(checked.stderr.strip()[:500])
             actor=json.loads(checked.stdout);actor['id']=old['id'] if old else secrets.token_hex(8)
@@ -685,7 +686,7 @@ class Game:
 
     def engine(self, payload):
         try:
-            result=subprocess.run(['node',str(ROOT/'combat-engine.mjs')],input=json.dumps(payload),text=True,
+            result=run_node([str(ROOT/'combat-engine.mjs')],input=json.dumps(payload),text=True,
                                   encoding='utf-8',capture_output=True,timeout=8)
         except (OSError,subprocess.TimeoutExpired):raise ValueError('Боевой движок недоступен; проверьте Node.js.')
         if result.returncode:raise ValueError(result.stderr.strip()[:500] or 'Ошибка боевого движка.')

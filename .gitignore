@@ -5,3 +5,7 @@ __pycache__/
 local-assets/
 map-images/
 .runtime/
+node_modules/
+.cache/
+.stage/
+desktop/build/

@@ -1,0 +1,51 @@
+{
+  "name": "zapretnie-zemli-desktop",
+  "version": "1.0.0",
+  "description": "Запретные Земли — общий игровой стол для Windows",
+  "author": "Screamlol1",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "postinstall": "node node_modules/electron/install.js",
+    "start": "electron .",
+    "prepare:runtime": "node scripts/prepare-runtime.cjs",
+    "prepare:game": "node scripts/prepare-game.cjs",
+    "test": "node --test tests/*.test.cjs",
+    "pack": "npm run prepare:game && electron-builder --win --x64 --dir",
+    "dist": "npm run prepare:game && electron-builder --win nsis --x64"
+  },
+  "devDependencies": {
+    "electron": "45.2.1",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "ru.zapretnie-zemli.table",
+    "productName": "Запретные Земли",
+    "executableName": "ZapretnieZemli",
+    "artifactName": "ZapretnieZemli-Setup-${version}-${arch}.${ext}",
+    "asar": true,
+    "directories": {"output": "../../outputs/windows", "buildResources": "build"},
+    "files": ["main.cjs", "host.cjs", "preload.cjs", "policy.cjs", "ui/**/*", "package.json"],
+    "extraResources": [
+      {"from": ".stage/game", "to": "game"},
+      {"from": ".runtime", "to": "runtime"},
+      {"from": "desktop_server.py", "to": "desktop_server.py"},
+      {"from": "THIRD-PARTY.md", "to": "THIRD-PARTY.md"},
+      {"from": "runtime-lock.json", "to": "runtime-lock.json"}
+    ],
+    "win": {"target": ["nsis"], "icon": "ui/app.ico", "signAndEditExecutable": true},
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Запретные Земли",
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true,
+      "installerLanguages": ["ru_RU", "en_US"],
+      "language": "1049"
+    }
+  }
+}

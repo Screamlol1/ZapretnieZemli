@@ -2,7 +2,7 @@
 import copy
 import functools
 import json
-import subprocess
+from node_runtime import run_node
 from pathlib import Path
 from sheet_validation import validate_sheet
 
@@ -16,7 +16,7 @@ NAMES=dict(zip(SKILLS,('Ближний бой','Мощь','Ремесло','Ст
 @functools.lru_cache(maxsize=1)
 def catalog():
     """Use the same catalog as import validation; no second set of talent IDs."""
-    result=subprocess.run(['node','--input-type=module','-e',"import {GENERAL,PROFESSIONS,paths} from './public/tools/rules.js';console.log(JSON.stringify({general:GENERAL,paths:Object.fromEntries(Object.keys(PROFESSIONS).flatMap(profession=>['core','bitter'].map(expansion=>[profession+':'+expansion,paths({profession,expansion})])))}));"],cwd=Path(__file__).parent,capture_output=True,text=True,encoding='utf-8',timeout=8)
+    result=run_node(['--input-type=module','-e',"import {GENERAL,PROFESSIONS,paths} from './public/tools/rules.js';console.log(JSON.stringify({general:GENERAL,paths:Object.fromEntries(Object.keys(PROFESSIONS).flatMap(profession=>['core','bitter'].map(expansion=>[profession+':'+expansion,paths({profession,expansion})])))}));"],cwd=Path(__file__).parent,capture_output=True,text=True,encoding='utf-8',timeout=8)
     if result.returncode:raise ValueError('Не удалось загрузить правила развития.')
     return json.loads(result.stdout)
 
