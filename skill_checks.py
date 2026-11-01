@@ -14,12 +14,13 @@ def die(sides=6):return secrets.randbelow(sides)+1
 def successes(value):return max(0,value//2-2) if value>=6 else 0
 def signature(c,item):return json.dumps([c['sheet'],c['runtime']['current'],c['runtime'].get('wp',0),item.get('version') if item else None],sort_keys=True)
 def artifact_successes(r):return sum(successes(v) for v in r['artifact'])+sum(successes(a['value']) for a in r.get('artifacts',[]))
-def count(r):return max(0,r['base'].count(6)+r['gear'].count(6)+r['skillDice'].count(6)*(-1 if r['negative'] else 1)+artifact_successes(r)+r.get('kinSuccesses',0)-r.get('penalty',[]).count(6))
+def count(r):return max(0,r['base'].count(6)+r['gear'].count(6)+r['skillDice'].count(6)*(-1 if r['negative'] else 1)+artifact_successes(r)+r.get('kinSuccesses',0)+r.get('pride',{}).get('hits',0)-r.get('penalty',[]).count(6))
 
 def apply(room,s,data,opposed=False):
     private=visibility(s,data)
     c=character(room,data.get('character'));editable(room,dict(kind='character',id=c['id']),s);ensure(room,c['id'])
     rt=c['runtime']
+    if rt.get('prideRequest') and data['action']!='characterAccept':raise ValueError('Сначала завершите или отмените запрос гордости.')
     if data['action']=='characterRoll':
         if not opposed and any(not p.get('done') and any(p[k]['character']==c['id'] for k in ('attacker','defender')) for p in room.get('opposedChecks',[])):raise ValueError('Сначала завершите или отмените встречную проверку этого персонажа.')
         if data.get('revision')!=room['revision']:raise ValueError('Состояние изменилось. Проверьте состав броска и повторите.')
@@ -56,6 +57,7 @@ def apply(room,s,data,opposed=False):
         if r['signature']!=signature(c,item) or r['item'] and not item:raise ValueError('Герой или предмет изменился после броска. Форсирование недоступно.')
         if data['action']=='characterAccept':
             r['accepted']=True
+            rt.pop('prideRequest',None)
             return
         injuries.check_allowed(c)
         if repeat:
@@ -92,8 +94,7 @@ def apply(room,s,data,opposed=False):
     if r['pushed']:result+=f" Риск: {r['attribute']} −{r['damage']}, износ −{r['wear']}."
     if r['pushed']:message+=f" Форсирование: урон {r['damage']}, износ {r['wear']}."
     if r['note']:message+=' '+r['note']
-    extra_push=r['pushed'] and c['kind']=='pc' and c['sheet']['kin']=='dwarf'
-    r['diceEvent']=publish(room,c['name'],'Пойти на риск' if r['pushed'] else 'Проверка навыка',pools(r),result,r.get('private',False),message,risk=dict(action='character',character=c['id'],roll=r['id'],attribute=r['attribute']) if not r['pushed'] or extra_push else None)
+    r['diceEvent']=publish(room,c['name'],'Пойти на риск' if r['pushed'] else 'Проверка навыка',pools(r),result,r.get('private',False),message,risk=dict(action='character',character=c['id'],roll=r['id'],attribute=r['attribute']) if not r.get('accepted') else None)
     if data['action']=='characterRoll':
         injuries.check_pain(room,c,r['skill'])
         r['signature']=signature(c,item)

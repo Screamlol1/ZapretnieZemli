@@ -7,8 +7,8 @@ export function riskAction(s,e){
  if(!c||!gm&&(c.owner!==s.me.owner||c.kind!=='pc')||e.private&&!gm)return null;
  if(r.action==='opposed'){
   const pair=s.opposedChecks?.find(p=>p.id===r.opposed),check=e.private?s.gmChecks?.[c.id]:c.runtime?.lastCheck;
-  if(check?.diceEvent&&check.diceEvent!==e.id)return null;
-  const repeat=repeatDwarf(c,check);return pair&&!pair.done&&pair.attacker.rolled&&pair.defender.rolled&&check?.id===r.roll?{action:'opposedPush',id:r.opposed,...(repeat?{kinRepeat:true,kinAttempt:check.kinPushes||0,kinWP:c.runtime.wp}:{}),pushAvailable:!check.pushed||repeat}:null;
+  if(check?.current===false||check?.diceEvent&&check.diceEvent!==e.id)return null;
+  const repeat=repeatDwarf(c,check);return pair&&!pair.done&&pair.attacker.rolled&&pair.defender.rolled&&check?.id===r.roll?{action:'opposedPush',id:r.opposed,...(repeat?{kinRepeat:true,kinAttempt:check.kinPushes||0,kinWP:c.runtime.wp}:{}),pushAvailable:check.pushAvailable!==false&&(!check.pushed||repeat)}:null;
  }
  if(r.action==='combat')return s.combat?.pendingRisk?.id===r.roll?{action:'combatAction',revision:s.combatRevision,command:{action:'risk',roll:r.roll,push:true}}:null;
  if(r.action==='journey')return s.journeyRisk?.id===r.roll?{action:'travelRisk',roll:r.roll,push:true}:null;
@@ -19,10 +19,10 @@ export function riskAction(s,e){
  }
  if(r.action==='character'){
   const check=e.private?s.gmChecks?.[c.id]:c.runtime?.lastCheck;
-  if(check?.diceEvent&&check.diceEvent!==e.id)return null;
+  if(check?.current===false||check?.diceEvent&&check.diceEvent!==e.id)return null;
   const repeat=repeatDwarf(c,check);
-  if(check?.id!==r.roll||check.pushed&&!repeat||check.accepted||['setup','combat'].includes(s.combat?.phase)&&s.combat.units.some(u=>u.id===c.id)||s.journey.phase==='resolving'&&s.journey.party.includes(c.id))return null;
-  return {action:'characterPush',character:c.id,roll:r.roll,...(repeat?{kinRepeat:true,kinAttempt:check.kinPushes||0,kinWP:c.runtime.wp}:{})};
+  if(check?.id!==r.roll||check.accepted||['setup','combat'].includes(s.combat?.phase)&&s.combat.units.some(u=>u.id===c.id)||s.journey.phase==='resolving'&&s.journey.party.includes(c.id))return null;
+  return {action:'characterPush',character:c.id,roll:r.roll,pushAvailable:check.pushAvailable!==false&&(!check.pushed||repeat),...(repeat?{kinRepeat:true,kinAttempt:check.kinPushes||0,kinWP:c.runtime.wp}:{})};
  }
  return null;
 }

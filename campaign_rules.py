@@ -286,6 +286,7 @@ def apply(room,s,data):
         if t['automatic']:raise ValueError('Четверть сменяется автоматически после завершения действий всех участников и Мастера.')
         advance(room,data)
     elif action=='travelSession':
+        if any(c.get('runtime',{}).get('prideRequest') for c in room['characters']):raise ValueError('Сначала завершите или отмените запросы гордости.')
         t['session']+=1;journal(room,f"Началась игровая сессия {t['session']}.")
     elif action.startswith('hold'):
         stronghold(room,data)

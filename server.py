@@ -12,6 +12,8 @@ from location_maps import apply as location_map_action, redact as redact_locatio
 from dice_pools import skill_counts, result_text, artifact_sides
 from dice_events import publish as publish_dice, group as dice_group, visibility as dice_visibility, redact as redact_dice
 import argparse
+import pride
+import check_state
 import base64
 import binascii
 import json
@@ -168,6 +170,7 @@ class Game:
         table_tools.project(room,s)
         injuries.redact(room,s)
         session_recap.public(room,s)
+        check_state.project(room)
         room['maps']['world']=effective_world(room)
         room['mapTerrain']={'referenceCount':len(room.get('_worldBase',{}))}
         room.pop('_worldBase',None)
@@ -206,6 +209,9 @@ class Game:
                               {**{k:v for k,v in c.items() if k in ('id','owner','name','kind','visual')},'kin':c.get('sheet',{}).get('kin')} for c in room['characters']
                               if s['role']=='gm' or not c.get('hidden')]
         if s['role']!='gm':
+            for c in room['characters']:
+                rt=c.get('runtime',{})
+                if rt.get('prideRequest',{}).get('private'):rt.pop('prideRequest')
             redact_dice(room)
             room['opposedChecks']=[p for p in room.get('opposedChecks',[]) if not p['private']]
             redact_location_maps(room)
@@ -261,6 +267,8 @@ class Game:
             raise PermissionError('Действие доступно только Мастеру.')
         if action=='injury':
             injuries.apply(room,s,data)
+        elif action=='characterPride':
+            pride.apply(room,s,data)
         elif action=='characterAbility':
             kin_checks.apply(room,s,data)
         elif action=='sessionRecap':
@@ -298,6 +306,7 @@ class Game:
             sheet=validated['sheet']
             cid = str(data.get('id') or secrets.token_hex(8))
             old = next((c for c in room['characters'] if c['id']==cid),None)
+            pride.guard_edit(old,sheet)
             guard_sheet(old['sheet'] if old else None,sheet,allow_import=gm)
             if old and old['owner']!=s['owner'] and not gm:
                 raise PermissionError('Нельзя изменять чужого персонажа.')

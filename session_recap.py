@@ -18,6 +18,7 @@ def safe_to_finish(room):
     if room.get('journeyRisk') or any(i.get('repair',{}).get('status')=='rolled' for i in room.get('items',[])) or any(not x.get('done') for x in room.get('opposedChecks',[])):
         raise ValueError('Сначала завершите ожидающие решения по броскам и встречные проверки.')
     for c in room['characters']:
+        if c.get('runtime',{}).get('prideRequest'):raise ValueError(f"{c['name']}: завершите или отмените запрос гордости.")
         for check in (c.get('runtime',{}).get('lastCheck'),room.get('gmChecks',{}).get(c['id'])):
             if not check or check.get('pushed') or check.get('accepted'):continue
             item=next((i for i in room.get('items',[]) if i['id']==check.get('item') and i.get('location')==dict(kind='character',id=c['id'])),None)

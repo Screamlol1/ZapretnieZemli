@@ -28,6 +28,8 @@ def pools(r):
         groups.append({**group('artifact', [a['value']], a['sides']), 'held':[a.get('held',False)]})
     if r.get('sides'):
         groups.append({**group('artifact', r.get('artifact', []), r['sides']), 'held':r.get('held',{}).get('artifact',[])})
+    if r.get('pride'):
+        groups.append(dict(kind='artifact',label='Гордость',values=[r['pride']['value']],sides=12,negative=False))
     return groups
 
 def publish(room, name, label, groups, result, private=False, message=None, risk=None):
@@ -36,8 +38,19 @@ def publish(room, name, label, groups, result, private=False, message=None, risk
     if risk:event['risk']=copy.deepcopy(risk)
     pending={room.get('combat',{}).get('pendingRisk',{}).get('id'),room.get('journeyRisk',{}).get('id')} - {None}
     events=room.get('diceRolls', []) + [event]
-    pinned=[e for e in events[:-200] if e.get('risk',{}).get('roll') in pending]
-    room['diceRolls'] = pinned + events[-(200-len(pinned)):] if pinned else events[-200:]
+    check_ids={r.get('diceEvent') for c in room.get('characters',[]) for r in
+               (c.get('runtime',{}).get('lastCheck'),room.get('gmChecks',{}).get(c['id'])) if r and not r.get('accepted')}
+    treatment=room.get('treatment',{}).get('roll',{})
+    if treatment.get('id'):pending.add(treatment['id'])
+    for item in room.get('items',[]):
+        repair=item.get('repair',{})
+        if repair.get('status')=='rolled':pending.add(repair['roll']['id'])
+    pinned=[e for e in events[:-1] if e['id'] in check_ids or e.get('risk',{}).get('roll') in pending][-199:]
+    keep={e['id'] for e in pinned}|{event['id']}
+    for old in reversed(events):
+        if len(keep)>=200:break
+        keep.add(old['id'])
+    room['diceRolls']=[e for e in events if e['id'] in keep]
     if message is None:
         values = '; '.join(f"{g['label']}{' (−)' if g.get('negative') else ''} D{g['sides']} [{', '.join(map(str, g['values']))}]" for g in event['groups'])
         message = f'{label}: {values or "без костей"}. {result}'

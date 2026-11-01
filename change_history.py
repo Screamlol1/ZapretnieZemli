@@ -9,7 +9,7 @@ COLLECTIONS=('characters','items','tokens','strongholds','locationMaps','worksho
 SAFE={'paint','mapLocation','token','deleteToken','visual','runtime','assignCharacter',
       'character','actor','deleteCharacter','itemCreate','itemEdit','itemTransfer','itemWear',
       'itemAppearance','itemSplit','itemMerge','inventoryCoins','equipment'}
-LABELS={'paint':'Местность','mapLocation':'Место на карте','token':'Жетон','deleteToken':'Удаление жетона',
+LABELS={'characterPride':'Гордость героя','paint':'Местность','mapLocation':'Место на карте','token':'Жетон','deleteToken':'Удаление жетона',
         'visual':'Внешность','runtime':'Состояние героя','assignCharacter':'Владелец героя',
         'character':'Лист героя','actor':'Персонаж Мастера','deleteCharacter':'Удаление персонажа',
         'itemCreate':'Создание предмета','itemEdit':'Изменение предмета','itemTransfer':'Передача предмета',
