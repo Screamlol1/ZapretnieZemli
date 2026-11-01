@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+from urllib.parse import unquote
 
 sys.path.insert(0,str(Path(__file__).parents[1]))
 import node_runtime
@@ -17,14 +18,16 @@ import progression
 class NodeRuntimeTests(unittest.TestCase):
     def test_explicit_runtime_does_not_depend_on_path_or_working_directory(self):
         node=Path(shutil.which('node')).resolve()
-        with tempfile.TemporaryDirectory(prefix='ЗЗ runtime ') as folder:
+        with tempfile.TemporaryDirectory(prefix='ЗЗ runtime ~ ') as folder:
             script=Path(folder)/'скрипт с пробелами.mjs'
             script.write_text("process.stdout.write(JSON.stringify({text:process.argv[2],file:import.meta.url}));",encoding='utf-8')
             with patch.dict(os.environ,{'ZZ_NODE':str(node),'PATH':''}):
                 result=node_runtime.run_node([str(script),'Сохранённый герой & карта'],cwd=folder,text=True,capture_output=True,encoding='utf-8',check=True,timeout=8)
             data=json.loads(result.stdout)
             self.assertEqual(data['text'],'Сохранённый герой & карта')
-            self.assertEqual(data['file'],script.as_uri())
+            # Node and pathlib may encode '~' differently (Windows short paths).
+            # Compare the same decoded file URL while retaining the path check.
+            self.assertEqual(unquote(data['file']),unquote(script.as_uri()))
 
     def test_windows_console_is_hidden_and_existing_flags_are_preserved(self):
         with patch.dict(os.environ,{},clear=True),patch.object(node_runtime.os,'name','nt'),patch.object(subprocess,'CREATE_NO_WINDOW',0x08000000,create=True),patch('node_runtime.subprocess.run') as run:
