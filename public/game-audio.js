@@ -28,7 +28,7 @@ function stopTransient(){transientGeneration++;stopEffects(0);}
 function stopPreview(){previewGeneration++;for(let index=effects.length-1;index>=0;index--)if(effects[index].preview)stopVoice(effects.splice(index,1)[0],0);}
 function stopAmbient(fade=.8){ambientGeneration++;clearTimeout(ambientTimer);ambientTimer=null;ambientKey='';for(const voice of ambientVoices)stopVoice(voice,fade);}
 function catalog(){
- if(!catalogPromise)catalogPromise=fetch(new URL('audio-catalog.json',import.meta.url),{cache:'force-cache'}).then(r=>{if(!r.ok)throw Error('Audio catalog unavailable');return r.json();}).then(data=>new Map((data.clips||[]).filter(clip=>typeof clip.id==='string'&&/^audio\/[a-z0-9-]+\.mp3$/.test(clip.url)).map(clip=>[clip.id,clip]))).catch(error=>{catalogPromise=null;throw error;});
+ if(!catalogPromise)catalogPromise=fetch(new URL('audio-catalog.json',import.meta.url),{cache:'no-cache'}).then(r=>{if(!r.ok)throw Error('Audio catalog unavailable');return r.json();}).then(data=>new Map((data.clips||[]).filter(clip=>typeof clip.id==='string'&&/^audio\/[a-z0-9-]+\.mp3$/.test(clip.url)).map(clip=>[clip.id,clip]))).catch(error=>{catalogPromise=null;throw error;});
  return catalogPromise;
 }
 function pumpDecodes(){
@@ -41,7 +41,7 @@ function decodeClip(data,clip){
  return new Promise((resolve,reject)=>{
   decodeQueue.push({resolve,reject,run:async()=>{
    totalDecodes++;const full=await context.decodeAudioData(data);
-   if(clip.kind!=='effect'||!clip.limit)return full;
+   if(clip.prepared===true||clip.kind!=='effect'||!clip.limit)return full;
    // Keep only the short take used by an effect in decoded memory. Original
    // user-supplied MP3 bytes stay intact on disk and in the browser cache.
    const offset=Math.min(Math.floor((clip.offset||0)*full.sampleRate),full.length-1),length=Math.min(Math.ceil(clip.limit*full.sampleRate),full.length-offset),take=context.createBuffer(full.numberOfChannels,length,full.sampleRate);
@@ -66,7 +66,8 @@ async function loadClip(id){
   // promise or cause a second decode of the same asset while it is loading.
   let pending=inflight.get(id);
   if(!pending){
-   pending=fetch(new URL(clip.url,import.meta.url),{cache:'force-cache'}).then(r=>{if(!r.ok)throw Error('Audio file unavailable');return r.arrayBuffer();}).then(data=>decodeClip(data,clip)).then(decoded=>{cacheBuffer(id,decoded);return decoded;}).finally(()=>{if(inflight.get(id)===pending)inflight.delete(id);});
+   const url=new URL(clip.url,import.meta.url);if(/^[a-f0-9]{64}$/.test(clip.sha256||''))url.searchParams.set('v',clip.sha256);
+   pending=fetch(url,{cache:'force-cache'}).then(r=>{if(!r.ok)throw Error('Audio file unavailable');return r.arrayBuffer();}).then(data=>decodeClip(data,clip)).then(decoded=>{cacheBuffer(id,decoded);return decoded;}).finally(()=>{if(inflight.get(id)===pending)inflight.delete(id);});
    inflight.set(id,pending);
   }
   buffer=await pending;

@@ -1,6 +1,7 @@
 'use strict';
 const shellApi=window.desktop,$=id=>document.getElementById(id);
 let state={view:'home',preferences:{mode:'windowed',width:1440,height:1000,zoom:100,rememberWindow:true,confirmExit:true},display:{width:1920,height:1080}},busy=false,dirty=false,opened=false,restoreFocus=null,pendingSignature='',pendingUntil=0;
+let diagnosticsBusy=false;
 const inputs=[...document.querySelectorAll('#settings-dialog input,#settings-dialog select')];
 const sceneCopy={journey:['Дороги Запретных Земель','Лесные тропы, дальние перевалы и ещё не открытые места.'],settlement:['Огни поселения','За стенами ждут жители, ремесленные мастерские и новые истории.'],ruins:['Следы забытых времён','Старые стены хранят то, о чём давно перестали говорить.'],battle:['Перед схваткой','Отряд собирается у костра. Скоро каждый сделает свой ход.'],magic:['На границе незримого','Древние знаки проступают в тишине между мирами.'],characters:['Привал у дороги','Каждое приключение начинается с тех, кто идёт рядом.']};
 let sceneKey='',sceneTimer=null,sceneTimeout=null,sceneFailed=false;
@@ -37,6 +38,7 @@ function fieldStatus(){
   $('zoom-value').textContent=$('interface-zoom').value+'%';
   $('apply-settings').disabled=busy||pending||!dirty;
   $('confirm-display').disabled=busy;$('revert-display').disabled=busy;
+  $('save-diagnostics').disabled=diagnosticsBusy||busy||pending;
   $('settings-status').textContent=pending?'Подтвердите новый режим или верните прежний.':busy?'Применяем изменения…':dirty?'Есть неприменённые изменения':'Настройки сохранены на этом компьютере';
 }
 function showTab(id,{focus=false}={}){for(const tab of document.querySelectorAll('[data-tab]')){const selected=tab.dataset.tab===id;tab.setAttribute('aria-selected',String(selected));tab.tabIndex=selected?0:-1;$(tab.getAttribute('aria-controls')).hidden=!selected;if(selected&&focus)tab.focus();}}
@@ -65,6 +67,7 @@ for(const action of ['home','back','forward'])$('go-'+action).onclick=()=>invoke
 $('reload').onclick=()=>invoke('navigate','reload');$('open-settings').onclick=()=>invoke('openSettings');
 $('resume-game').onclick=()=>invoke('navigate','game');
 $('game-settings').onclick=()=>invoke('navigate','game-settings');
+$('save-diagnostics').onclick=async()=>{if(diagnosticsBusy||busy||state.displayPending)return;diagnosticsBusy=true;const status=$('diagnostics-status');status.hidden=false;status.dataset.error='false';status.textContent='Выберите место для отчёта…';fieldStatus();try{const result=await shellApi.saveDiagnostics();status.textContent=result?.saved?'Диагностика сохранена. Передайте JSON-файл разработчику удобным для вас способом.':'Сохранение отменено. Файл не создан.';}catch{status.dataset.error='true';status.textContent='Не удалось сохранить отчёт. Выберите доступную папку и повторите.';}finally{diagnosticsBusy=false;fieldStatus();}};
 $('desktop-loading-retry').onclick=()=>{sceneKey='';invoke('navigate','reload');};$('desktop-loading-home').onclick=()=>invoke('navigate','home');
 for(const [id,command] of [['minimize','minimize'],['maximize','maximize'],['close-window','close']])$(id).onclick=()=>invoke('windowControl',command);
 $('titlebar').ondblclick=event=>{if(!event.target.closest('button'))invoke('windowControl','maximize');};

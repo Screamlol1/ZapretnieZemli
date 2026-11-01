@@ -1,9 +1,14 @@
-"""Copy the selected user-provided DragonSound effects without transcoding."""
+"""Build compact game audio from user-supplied recordings; never modify sources."""
 import argparse
 import hashlib
 import json
+import math
+import os
 from pathlib import Path
+import re
 import shutil
+import subprocess
+import tempfile
 
 # Stable filenames keep network payloads and imports independent of local paths.
 SELECTION = [
@@ -30,55 +35,144 @@ SELECTION = [
 ]
 
 
-def mp3_duration(data):
-    """Read MPEG Layer III frame lengths; no external codec is needed to import."""
-    index = 0
-    if data[:3] == b'ID3' and len(data) >= 10:
-        index = 10 + sum((data[6 + i] & 127) << (7 * (3 - i)) for i in range(4))
-    total = 0.0
-    while index + 4 < len(data):
-        h = int.from_bytes(data[index:index + 4], 'big')
-        version, layer, bitrate_index, rate_index = (h >> 19) & 3, (h >> 17) & 3, (h >> 12) & 15, (h >> 10) & 3
-        if h >> 21 != 0x7ff or version == 1 or layer != 1 or bitrate_index in (0, 15) or rate_index == 3:
-            index += 1
-            continue
-        bitrate = ([0,32,40,48,56,64,80,96,112,128,160,192,224,256,320] if version == 3 else [0,8,16,24,32,40,48,56,64,80,96,112,128,144,160])[bitrate_index]
-        rate = [44100,48000,32000][rate_index] // (1 if version == 3 else 2 if version == 2 else 4)
-        length = (144000 if version == 3 else 72000) * bitrate // rate + ((h >> 9) & 1)
-        if index + length > len(data):
-            break
-        total += (1152 if version == 3 else 576) / rate
-        index += length
-    return round(total, 3)
+PIPELINE_VERSION = 2
+SAMPLE_RATE = 32000
+TARGET_MEAN_DB = {'effect': -18.0, 'ambience': -22.0}
+TARGET_PEAK_DB = -2.0
+MAX_BOOST_DB = 9.0
+MAX_REDUCTION_DB = -18.0
+
+
+def run(arguments):
+    return subprocess.run([str(value) for value in arguments], check=True, capture_output=True,
+                          text=True, encoding='utf-8', errors='replace', timeout=180)
+
+
+def find_tools(executable):
+    resolved = shutil.which(str(executable))
+    ffmpeg = Path(resolved or executable).resolve()
+    ffprobe = ffmpeg.with_name('ffprobe' + ffmpeg.suffix)
+    if not ffmpeg.is_file() or not ffprobe.is_file():
+        raise ValueError('FFmpeg and ffprobe are required only on the development machine; use --ffmpeg <path>.')
+    return ffmpeg, ffprobe
+
+
+def probe(ffprobe, filename):
+    info = json.loads(run([ffprobe, '-v', 'error', '-select_streams', 'a:0', '-show_entries',
+                          'stream=sample_rate,channels,duration:format=duration', '-of', 'json', filename]).stdout)
+    stream = info['streams'][0]
+    duration = float(info['format'].get('duration', stream.get('duration', 0)))
+    if not math.isfinite(duration) or duration <= 0:
+        raise ValueError('Audio has no finite duration')
+    return dict(duration=duration, sampleRate=int(stream['sample_rate']), channels=int(stream['channels']))
+
+
+def measure(ffmpeg, filename, filters):
+    output = run([ffmpeg, '-nostdin', '-hide_banner', '-i', filename, '-map', '0:a:0',
+                  '-af', filters + ',volumedetect', '-f', 'null', '-']).stderr
+    def field(name):
+        match = re.search(rf'{name}:\s*(-?\d+(?:\.\d+)?) dB', output)
+        if not match:
+            raise ValueError('Cannot measure audio level: ' + name)
+        return float(match.group(1))
+    return field('mean_volume'), field('max_volume')
+
+
+def normalization(mean_db, peak_db, kind):
+    return round(max(MAX_REDUCTION_DB, min(MAX_BOOST_DB, TARGET_MEAN_DB[kind] - mean_db,
+                                          TARGET_PEAK_DB - peak_db)), 2)
+
+
+def build_library(source, public, ffmpeg, selection=SELECTION):
+    """Prepare every clip before publishing; the source directory is read-only."""
+    ffmpeg, ffprobe = find_tools(ffmpeg)
+    source, public = Path(source).resolve()/'sounds', Path(public).resolve()
+    if not source.is_dir():
+        raise ValueError('Expected the supplied DragonSound folder containing sounds/')
+    if public == source or public.is_relative_to(source):
+        raise ValueError('Output must be outside the source recordings')
+    public.mkdir(parents=True, exist_ok=True)
+    destination = public/'audio'
+    clips = []
+    version = run([ffmpeg, '-version']).stdout.splitlines()[0]
+    # Temporary output stays beside its destination, allowing atomic file replacement.
+    with tempfile.TemporaryDirectory(prefix='.audio-import-', dir=public) as temporary:
+        staging = Path(temporary)
+        for clip_id, title, kind, relative, offset, limit, gain in selection:
+            if not re.fullmatch(r'[a-z0-9-]+', clip_id) or kind not in TARGET_MEAN_DB:
+                raise ValueError('Invalid audio selection')
+            original = (source/relative).resolve()
+            if not original.is_relative_to(source):
+                raise ValueError('Source must stay inside sounds/')
+            data = original.read_bytes()
+            source_hash = hashlib.sha256(data).hexdigest()
+            metadata = probe(ffprobe, original)
+            if offset < 0 or metadata['duration'] <= offset or len(data) > 3_000_000:
+                raise ValueError('Invalid or oversized selected audio: ' + relative)
+            duration = min(limit, metadata['duration'] - offset) if limit else metadata['duration'] - offset
+            channels = 1 if kind == 'effect' else min(2, metadata['channels'])
+            bitrate = 64 if kind == 'effect' else 80
+            trim = f'atrim=start={offset:.6f}' + (f':duration={duration:.6f}' if limit else '')
+            base = f'{trim},asetpts=PTS-STARTPTS,aformat=sample_fmts=fltp:sample_rates={SAMPLE_RATE}:channel_layouts={"mono" if channels == 1 else "stereo"}'
+            mean_db, peak_db = measure(ffmpeg, original, base)
+            adjustment = normalization(mean_db, peak_db, kind)
+            fade_in, fade_out = (.012, .06) if kind == 'effect' else (.05, .1)
+            fade_in, fade_out = min(fade_in, duration/4), min(fade_out, duration/4)
+            filters = (f'{base},volume={adjustment:.2f}dB,afade=t=in:st=0:d={fade_in:.6f},'
+                       f'afade=t=out:st={max(0, duration-fade_out):.6f}:d={fade_out:.6f}')
+            target = staging/(clip_id+'.mp3')
+            run([ffmpeg, '-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-i', original,
+                 '-map', '0:a:0', '-vn', '-sn', '-dn', '-map_metadata', '-1', '-map_chapters', '-1',
+                 '-af', filters, '-ac', channels, '-ar', SAMPLE_RATE, '-c:a', 'libmp3lame', '-b:a', f'{bitrate}k',
+                 '-threads', '1', '-fflags', '+bitexact', '-flags:a', '+bitexact', '-write_xing', '1',
+                 '-id3v2_version', '0', target])
+            derived = target.read_bytes()
+            derived_hash = hashlib.sha256(derived).hexdigest()
+            encoded = probe(ffprobe, target)
+            if abs(encoded['duration'] - duration) > .15:
+                raise ValueError('Prepared audio duration is inconsistent: ' + clip_id)
+            if hashlib.sha256(original.read_bytes()).hexdigest() != source_hash:
+                raise ValueError('Source changed during import: ' + relative)
+            clips.append(dict(id=clip_id, title=title, kind=kind, url='audio/'+target.name,
+                              bytes=len(derived), duration=round(duration, 6), encodedDuration=round(encoded['duration'], 6),
+                              offset=0, limit=limit, gain=gain, prepared=True,
+                              source='DragonSound/sounds/'+relative, sourceBytes=len(data), sourceDuration=metadata['duration'],
+                              sourceOffset=offset, sourceLimit=limit, sourceSha256=source_hash,
+                              sha256=derived_hash, derivedSha256=derived_hash,
+                              processing=dict(sampleRate=SAMPLE_RATE, channels=channels, bitrateKbps=bitrate,
+                                              measuredMeanDb=mean_db, measuredPeakDb=peak_db, gainDb=adjustment,
+                                              fadeIn=fade_in, fadeOut=fade_out, filter=filters)))
+        total = sum(clip['bytes'] for clip in clips)
+        if total > 15_000_000:
+            raise ValueError('Selected effects exceed the 15 MB release budget')
+        manifest = dict(version=PIPELINE_VERSION,
+                        provenance='Recordings supplied by the user in DragonSound/sounds; originals unchanged. Game MP3 files are derived by the documented development import pipeline.',
+                        license='No license metadata was provided; no license is inferred.',
+                        sourceTotalBytes=sum(clip['sourceBytes'] for clip in clips), totalBytes=total,
+                        processing=dict(version=PIPELINE_VERSION, ffmpeg=version, codec='libmp3lame', sampleRate=SAMPLE_RATE,
+                                        targetMeanDb=TARGET_MEAN_DB, targetPeakDb=TARGET_PEAK_DB,
+                                        maxBoostDb=MAX_BOOST_DB, maxReductionDb=MAX_REDUCTION_DB),
+                        clips=clips,
+                        synthesized=[dict(id='dice', title='Короткий шорох костей', source='Generated locally by the game using filtered noise; no source recording.'),
+                                     dict(id='magic', title='Мягкий магический тон', source='Generated locally by the game using oscillators; no source recording.')])
+        catalog = staging/'audio-catalog.json'
+        catalog.write_text(json.dumps(manifest, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
+        destination.mkdir(exist_ok=True)
+        for clip in clips:
+            os.replace(staging/(clip['id']+'.mp3'), destination/(clip['id']+'.mp3'))
+        os.replace(catalog, public/'audio-catalog.json')
+    return manifest
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('source', nargs='?', type=Path, default=Path.home()/'Downloads'/'DragonSound')
+    parser.add_argument('--ffmpeg', default='ffmpeg', help='Development FFmpeg executable, with ffprobe alongside it')
     args = parser.parse_args()
-    source = args.source.resolve()/'sounds'
-    if not source.is_dir():
-        raise SystemExit(f'Not found: {source}')
     public = Path(__file__).resolve().parent/'public'
-    destination = public/'audio'
-    destination.mkdir(exist_ok=True)
-    clips = []
-    total = 0
-    for clip_id, title, kind, relative, offset, limit, gain in SELECTION:
-        original = source/relative
-        data = original.read_bytes()
-        duration = mp3_duration(data)
-        if duration <= offset or len(data) > 3_000_000:
-            raise ValueError(f'Invalid or oversized audio: {relative}')
-        target = destination/(clip_id+'.mp3')
-        shutil.copyfile(original, target)
-        clips.append(dict(id=clip_id,title=title,kind=kind,url='audio/'+target.name,bytes=len(data),duration=duration,offset=offset,limit=limit,gain=gain,source='DragonSound/sounds/'+relative,sha256=hashlib.sha256(data).hexdigest()))
-        total += len(data)
-    if total > 15_000_000:
-        raise ValueError('Selected effects exceed the 15 MB release budget')
-    manifest = dict(version=1,provenance='Files supplied by the user in DragonSound/sounds; copied without transcoding.',license='No license metadata was provided; no license is inferred.',totalBytes=total,clips=clips,synthesized=[dict(id='dice',title='Короткий шорох костей',source='Generated locally by the game using filtered noise; no source recording.'),dict(id='magic',title='Мягкий магический тон',source='Generated locally by the game using oscillators; no source recording.')])
-    (public/'audio-catalog.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
-    print(f'Imported {len(clips)} effects: {total:,} bytes. Music was not imported.')
+    manifest = build_library(args.source, public, args.ffmpeg)
+    print(f'Prepared {len(manifest["clips"])} clips: {manifest["totalBytes"]:,} bytes '
+          f'(source {manifest["sourceTotalBytes"]:,}). Originals unchanged; music not imported.')
 
 
 if __name__ == '__main__':

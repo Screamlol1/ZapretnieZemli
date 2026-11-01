@@ -51,6 +51,7 @@
         <button type="button" role="tab" id="tab-display" aria-selected="true" aria-controls="panel-display" data-tab="display"><svg><use href="#i-screen"/></svg>Экран</button>
         <button type="button" role="tab" id="tab-behavior" aria-selected="false" aria-controls="panel-behavior" tabindex="-1" data-tab="behavior"><svg><use href="#i-sliders"/></svg>Поведение</button>
         <button type="button" role="tab" id="tab-shortcuts" aria-selected="false" aria-controls="panel-shortcuts" tabindex="-1" data-tab="shortcuts"><svg><use href="#i-keyboard"/></svg>Клавиши</button>
+        <button type="button" role="tab" id="tab-diagnostics" aria-selected="false" aria-controls="panel-diagnostics" tabindex="-1" data-tab="diagnostics"><svg><use href="#i-sliders"/></svg>Диагностика</button>
         <div class="settings-note"><span class="note-sigil">✦</span><p>Настройки экрана действуют только на этом компьютере.</p></div>
       </nav>
       <div class="settings-content">
@@ -75,6 +76,15 @@
           <h2>Быстрые действия</h2>
           <dl class="shortcuts"><div><dt>Полный экран / вернуться в окно</dt><dd><kbd>F11</kbd><span>или</span><kbd>Alt</kbd> + <kbd>Enter</kbd></dd></div><div><dt>Настройки приложения</dt><dd><kbd>Ctrl</kbd> + <kbd>,</kbd></dd></div><div><dt>Назад / вперёд</dt><dd><kbd>Alt</kbd> + <kbd>←</kbd> / <kbd>→</kbd></dd></div><div><dt>Обновить страницу</dt><dd><kbd>Ctrl</kbd> + <kbd>R</kbd></dd></div><div><dt>Закрыть настройки или отменить смену экрана</dt><dd><kbd>Esc</kbd></dd></div></dl>
           <p class="field-help">Изменение режима не прерывает кампанию. При смене экрана можно вернуть предыдущие параметры.</p>
+        </section>
+        <section id="panel-diagnostics" role="tabpanel" aria-labelledby="tab-diagnostics" tabindex="0" hidden>
+          <h2>Отчёт для разбора неполадок</h2>
+          <p class="diagnostics-intro">Сохраните техническую сводку, если игра не запускается, не подключается или работает неправильно.</p>
+          <div class="diagnostics-summary"><strong>В JSON-файл войдут</strong><ul><li>Версии приложения, Electron, Node.js и комплектных компонентов, включая Python.</li><li>Версия Windows, архитектура и параметры окна.</li><li>Состояние своего сервера, локальная проверка его доступности и безопасные категории недавних ошибок.</li></ul></div>
+          <p class="field-help diagnostics-privacy">Пароли, cookies, аккаунты, кампании, базы данных, адреса приглашений, домашние пути и исходные журналы в отчёт не включаются. Сервер для проверки не запускается.</p>
+          <button type="button" class="primary" id="save-diagnostics">Сохранить диагностику</button>
+          <p class="field-help diagnostics-local">Вы выберете папку. Файл останется на вашем компьютере; автоматической отправки нет. Перед передачей разработчику его можно открыть в текстовом редакторе.</p>
+          <p id="diagnostics-status" role="status" aria-live="polite" hidden></p>
         </section>
       </div>
     </div>
