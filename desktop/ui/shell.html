@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Запретные Земли</title>
+  <link rel="stylesheet" href="shell.css">
+  <script defer src="shell.js"></script>
+</head>
+<body>
+  <svg class="symbols" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 11 9-8 9 8M5 10v11h5v-7h4v7h5V10"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="m14 5-7 7 7 7"/></symbol>
+    <symbol id="i-forward" viewBox="0 0 24 24"><path d="m10 5 7 7-7 7"/></symbol>
+    <symbol id="i-reload" viewBox="0 0 24 24"><path d="M20 10a8 8 0 1 0-1 7M20 4v6h-6"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="m9 3-.7 2.1-2 .9-2-.5-2 3.5L4 10.5v3L2.3 15l2 3.5 2-.5 2 .9L9 21h4l.7-2.1 2-.9 2 .5 2-3.5-1.7-1.5v-3L19.7 9l-2-3.5-2 .5-2-.9L13 3Z"/><circle cx="11" cy="12" r="3"/></symbol>
+    <symbol id="i-screen" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h5m4 0h7M4 17h11m4 0h1"/><circle cx="11" cy="7" r="2"/><circle cx="17" cy="17" r="2"/></symbol>
+    <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M6 9h.1M10 9h.1M14 9h.1M18 9h.1M6 13h.1M10 13h.1M14 13h.1M18 13h.1M7 16h10"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="i-minimize" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+    <symbol id="i-maximize" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="1"/></symbol>
+    <symbol id="i-restore" viewBox="0 0 24 24"><rect x="4" y="8" width="12" height="12" rx="1"/><path d="M8 8V4h12v12h-4"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+  </defs></svg>
+  <header id="app-chrome">
+    <div class="titlebar" id="titlebar">
+      <div class="titlebar-brand"><img src="app-icon.svg" alt="" width="17" height="17"><span>Запретные Земли</span><span class="app-version" id="app-version"></span></div>
+      <div class="window-actions">
+        <button type="button" id="minimize" title="Свернуть" aria-label="Свернуть окно"><svg><use href="#i-minimize"/></svg></button>
+        <button type="button" id="maximize" title="Развернуть" aria-label="Развернуть окно"><svg><use id="maximize-icon" href="#i-maximize"/></svg></button>
+        <button type="button" id="close-window" class="close-window" title="Закрыть приложение" aria-label="Закрыть приложение"><svg><use href="#i-close"/></svg></button>
+      </div>
+    </div>
+    <nav class="app-toolbar" aria-label="Навигация приложения">
+      <button type="button" class="home-button" id="go-home" title="Подключения и приглашения. Текущая игра останется открытой."><svg><use href="#i-home"/></svg><span>Подключения</span></button>
+      <button type="button" class="resume-button" id="resume-game" title="Вернуться в игру без повторного подключения" aria-label="Вернуться в игру" hidden><svg><use href="#i-forward"/></svg><span>В игру</span></button>
+      <div class="history-actions"><button type="button" class="icon-button" id="go-back" title="Назад · Alt+←" aria-label="Назад"><svg><use href="#i-back"/></svg></button><button type="button" class="icon-button" id="go-forward" title="Вперёд · Alt+→" aria-label="Вперёд"><svg><use href="#i-forward"/></svg></button><button type="button" class="icon-button" id="reload" title="Обновить страницу · Ctrl+R" aria-label="Обновить страницу"><svg><use href="#i-reload"/></svg></button></div>
+      <div class="page-location" aria-live="polite"><span id="page-title">Ваш игровой стол</span><span id="page-address">Подключитесь к кампании или начните свою</span></div>
+      <span class="connection-dot" id="connection-dot" title="Окно подключения"></span>
+      <button type="button" class="settings-button" id="open-settings" title="Настройки · Ctrl+," aria-label="Настройки приложения"><svg><use href="#i-settings"/></svg><span>Настройки</span></button>
+    </nav>
+    <div class="loading-line" id="loading-line" hidden></div>
+  </header>
+  <main class="workspace-fallback" id="workspace-fallback" aria-label="Загрузка игрового стола" hidden><img class="desktop-loading-art" id="desktop-loading-art" src="loading/characters.svg" alt=""><div class="desktop-loading-shade"></div><div class="desktop-loading-content"><span class="desktop-loading-eyebrow">ЗАПРЕТНЫЕ ЗЕМЛИ</span><p class="desktop-loading-place" id="desktop-loading-place">Привал у дороги</p><h2 id="desktop-loading-title">Открываем игровой стол</h2><p class="desktop-loading-detail" id="desktop-loading-detail">Каждое приключение начинается с тех, кто идёт рядом.</p><div class="desktop-loading-progress" role="status" aria-live="polite"><span class="desktop-loading-spinner" aria-hidden="true"></span><span id="desktop-loading-status">Загружаем…</span></div><p class="shell-error" id="shell-error" role="alert" hidden></p><div class="desktop-loading-actions" id="desktop-loading-actions" hidden><button type="button" id="desktop-loading-retry" class="primary">Повторить загрузку</button><button type="button" id="desktop-loading-home">К подключениям</button></div><p class="desktop-loading-footnote">Один стол. Общая история.</p></div></main>
+  <dialog id="settings-dialog" aria-labelledby="settings-title" aria-describedby="settings-description">
+    <header class="settings-heading"><div><span class="eyebrow">ПРИЛОЖЕНИЕ</span><h1 id="settings-title">Настройки</h1><p id="settings-description">Подстройте игровой стол под свой экран.</p></div><button type="button" class="icon-button" id="close-settings" title="Закрыть настройки · Esc" aria-label="Закрыть настройки"><svg><use href="#i-close"/></svg></button></header>
+    <div class="settings-layout">
+      <nav class="settings-sections" aria-label="Разделы настроек" role="tablist" aria-orientation="vertical">
+        <button type="button" role="tab" id="tab-display" aria-selected="true" aria-controls="panel-display" data-tab="display"><svg><use href="#i-screen"/></svg>Экран</button>
+        <button type="button" role="tab" id="tab-behavior" aria-selected="false" aria-controls="panel-behavior" tabindex="-1" data-tab="behavior"><svg><use href="#i-sliders"/></svg>Поведение</button>
+        <button type="button" role="tab" id="tab-shortcuts" aria-selected="false" aria-controls="panel-shortcuts" tabindex="-1" data-tab="shortcuts"><svg><use href="#i-keyboard"/></svg>Клавиши</button>
+        <div class="settings-note"><span class="note-sigil">✦</span><p>Настройки экрана действуют только на этом компьютере.</p></div>
+      </nav>
+      <div class="settings-content">
+        <section id="panel-display" role="tabpanel" aria-labelledby="tab-display" tabindex="0">
+          <fieldset class="mode-group"><legend>Режим экрана</legend><div class="mode-options">
+            <label class="mode-option"><input type="radio" name="screen-mode" value="windowed"><span class="mode-illustration windowed" aria-hidden="true"><i></i></span><strong>Оконный</strong><small>Размер можно менять</small></label>
+            <label class="mode-option"><input type="radio" name="screen-mode" value="fullscreen"><span class="mode-illustration fullscreen" aria-hidden="true"><i></i></span><strong>Полный экран</strong><small>Весь экран для игры</small></label>
+            <label class="mode-option"><input type="radio" name="screen-mode" value="borderless"><span class="mode-illustration borderless" aria-hidden="true"><i></i></span><strong>Без рамки</strong><small>По размеру экрана</small></label>
+          </div></fieldset>
+          <div class="field-row"><label for="resolution"><strong>Размер окна</strong><span>Ширина × высота в пикселях</span></label><select id="resolution" aria-describedby="resolution-hint"></select></div>
+          <p class="field-help" id="resolution-hint"></p>
+          <div class="field-row zoom-row"><label for="interface-zoom"><strong>Масштаб интерфейса</strong><span>Текст и элементы игрового стола</span></label><div class="zoom-control"><input id="interface-zoom" type="range" min="75" max="150" step="5" value="100"><output for="interface-zoom" id="zoom-value">100%</output></div></div>
+          <button type="button" id="game-settings" class="game-settings-link"><svg><use href="#i-sliders"/></svg>Звук, текст и анимации игры…</button><p class="field-help" id="game-settings-hint">Открыть общие настройки игрового стола в этом же окне.</p>
+        </section>
+        <section id="panel-behavior" role="tabpanel" aria-labelledby="tab-behavior" tabindex="0" hidden>
+          <h2>Запуск и завершение</h2>
+          <label class="toggle-row"><span><strong>Запоминать положение окна</strong><small>При следующем запуске восстановить расположение и размер.</small></span><input type="checkbox" id="remember-window" role="switch"><span class="switch-track" aria-hidden="true"></span></label>
+          <label class="toggle-row"><span><strong>Подтверждать выход при работе сервера</strong><small>Предупредить, что ваша кампания станет недоступна подключённым участникам.</small></span><input type="checkbox" id="confirm-exit" role="switch"><span class="switch-track" aria-hidden="true"></span></label>
+          <div class="help-card"><svg><use href="#i-home"/></svg><p><strong>Игра остаётся с вами</strong><span>Возврат к подключениям сохраняет текущую страницу и оставляет сервер работающим. Разделы и редакторы открываются в этом же окне.</span></p></div>
+        </section>
+        <section id="panel-shortcuts" role="tabpanel" aria-labelledby="tab-shortcuts" tabindex="0" hidden>
+          <h2>Быстрые действия</h2>
+          <dl class="shortcuts"><div><dt>Полный экран / вернуться в окно</dt><dd><kbd>F11</kbd><span>или</span><kbd>Alt</kbd> + <kbd>Enter</kbd></dd></div><div><dt>Настройки приложения</dt><dd><kbd>Ctrl</kbd> + <kbd>,</kbd></dd></div><div><dt>Назад / вперёд</dt><dd><kbd>Alt</kbd> + <kbd>←</kbd> / <kbd>→</kbd></dd></div><div><dt>Обновить страницу</dt><dd><kbd>Ctrl</kbd> + <kbd>R</kbd></dd></div><div><dt>Закрыть настройки или отменить смену экрана</dt><dd><kbd>Esc</kbd></dd></div></dl>
+          <p class="field-help">Изменение режима не прерывает кампанию. При смене экрана можно вернуть предыдущие параметры.</p>
+        </section>
+      </div>
+    </div>
+    <div class="settings-feedback" id="settings-feedback" role="status" hidden></div>
+    <section class="display-confirm" id="display-confirm" aria-labelledby="confirm-title" hidden><div><strong id="confirm-title">Оставить эти параметры экрана?</strong><p>Возврат к прежним через <span id="confirm-seconds">15</span> сек.</p></div><div class="confirm-actions"><button type="button" id="revert-display">Вернуть прежние</button><button type="button" id="confirm-display" class="primary"><svg><use href="#i-check"/></svg>Оставить</button></div></section>
+    <footer class="settings-footer"><span id="settings-status">Изменения применяются кнопкой справа</span><div><button type="button" id="cancel-settings">Закрыть</button><button type="button" id="apply-settings" class="primary">Применить</button></div></footer>
+  </dialog>
+</body>
+</html>

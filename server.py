@@ -215,6 +215,7 @@ class Game:
         if s['role']=='gm':
             room['owners']=[dict(owner=x['owner'],name=x.get('name','Участник'),role=x['role']) for x in identities.values()]
         room.pop('combatOwners',None)
+        room.get('combat',{}).pop('attackImpacts',None)
         if room.get('combat',{}).get('pendingRisk'):
             risk=room['combat']['pendingRisk'];risk.pop('replay',None)
             if risk.get('private') and s['role']!='gm':room['combat']['pendingRisk']={'waiting':True}
@@ -241,6 +242,9 @@ class Game:
                 rt=c.get('runtime',{})
                 if rt.get('prideRequest',{}).get('private'):rt.pop('prideRequest')
             redact_dice(room)
+            # A hidden roll must not announce itself through sound/animation metadata.
+            if room.get('combat',{}).get('event',{}).get('private'):
+                room['combat'].pop('event',None)
             room['opposedChecks']=[p for p in room.get('opposedChecks',[]) if not p['private']]
             redact_location_maps(room)
             room.pop('workshop',None)
@@ -552,17 +556,33 @@ class Game:
                 outside=name=='kinAbility' and cmd.get('ability') in ('orc','releasePrey')
                 if name not in ('defense','risk','initiativeChoose','initiativeOffer','initiativeAccept') and not outside and battle['phase']=='combat' and actor!=battle['order'][battle['turn']]:raise PermissionError('Сейчас ход другого бойца.')
             private=pending.get('private',False) if pending else dice_visibility(s,data)
+            resolved_cmd=cmd
+            if pending and name=='risk':
+                original=pending.get('replay',{}).get('command',{})
+                if isinstance(original,dict) and original.get('action') in ('slash','stab','shoot','punch','shove','monsterAttack','cast','move'):
+                    resolved_cmd=original
+            resolved_action=resolved_cmd.get('action')
+            event_actor=actor
+            if pending and resolved_cmd is not cmd:
+                replay_before=pending.get('replay',{}).get('before',{})
+                replay_order=replay_before.get('order',[]);replay_turn=replay_before.get('turn',0)
+                event_actor=resolved_cmd.get('unit') if resolved_action=='move' else replay_order[replay_turn] if 0<=replay_turn<len(replay_order) else actor
             room['combat']=self.engine(dict(battle=battle,command=cmd))
             updated=room['combat']
+            impacts=updated.pop('attackImpacts',[])
             if updated.get('pendingRisk'):updated['pendingRisk']['private']=private
             new_logs=updated.pop('commandLog',[])
             updated['publicLog']=(battle.get('publicLog',battle['log'])+([] if private else new_logs))[-300:]
             for roll in updated.pop('diceEvents',[]):
                 publish_dice(room,roll['name'],roll['label'],roll['groups'],roll['result'],private,risk=roll.get('risk'))
             sync_wear(room,room['combat'])
-            before=next((u for u in battle['units'] if u['id']==actor),None)
-            hit_ids=[u['id'] for u in room['combat']['units'] if any(u[k]<next(v for v in battle['units'] if v['id']==u['id'])[k] for k in ('str','agi','wits','emp'))]
-            room['combat']['event']=dict(id=secrets.token_hex(8),actor=actor,kind='move' if name=='move' else 'cast' if name=='cast' else 'strike' if name in ('slash','stab','shoot','punch','shove','monsterAttack') else 'idle',target=cmd.get('target'),hitIds=hit_ids,origin=dict(q=before['q'],r=before['r']) if before else None,time=time.time())
+            before=next((u for u in battle['units'] if u['id']==event_actor),None)
+            hit_ids=[u['id'] for u in updated['units'] if u['id']!=event_actor and any(u[k]<next(v for v in battle['units'] if v['id']==u['id'])[k] for k in ('str','agi','wits','emp'))]
+            if resolved_action in ('slash','stab'):
+                impact_targets={i.get('target') for i in impacts if i.get('actor')==event_actor and i.get('action')==resolved_action}
+                hit_ids=[cid for cid in hit_ids if cid in impact_targets]
+            if updated.get('pendingRisk') and not hit_ids:resolved_action='risk'
+            updated['event']=dict(id=secrets.token_hex(8),actor=event_actor,action=resolved_action,kind='move' if resolved_action=='move' else 'cast' if resolved_action=='cast' else 'strike' if resolved_action in ('slash','stab','shoot','punch','shove','monsterAttack') else 'idle',target=resolved_cmd.get('target'),hitIds=hit_ids,origin=dict(q=before['q'],r=before['r']) if before else None,time=time.time(),private=private)
             room['combatRevision']+=1
             for c in room['characters']:
                 u=next((u for u in room['combat']['units'] if u['id']==c['id']),None)
@@ -588,7 +608,7 @@ class Game:
             if was_positive and victim[attribute]==0 and victim.get('kin')=='orc':battle['manualOrcWindow']=dict(actor=target,attribute=attribute)
             battle['log']=(battle['log']+[f'Мастер: {note.strip()}. {victim["name"]}: {attribute} −{damage}.'])[-300:]
             battle['publicLog']=(battle.get('publicLog',battle['log'][:-1])+[battle['log'][-1]])[-300:]
-            battle['event']=dict(id=secrets.token_hex(8),actor=actor,target=target,hitIds=[target] if damage else [],kind='cast',time=time.time())
+            battle['event']=dict(id=secrets.token_hex(8),actor=actor,action='manual',target=target,hitIds=[target] if damage else [],kind='cast',time=time.time(),private=False)
             room['combatRevision']+=1
             for c in room['characters']:
                 u=next((u for u in battle['units'] if u['id']==c['id']),None)

@@ -26,6 +26,7 @@ import './settlement-population.test.mjs';
 import './session-flow.test.mjs';
 import './pending-decisions.test.mjs';
 import './scene.test.mjs';
+import './game-audio-state.test.mjs';
 import './inventory-repair.test.mjs';
 
 await import('./combat-risk.test.mjs');

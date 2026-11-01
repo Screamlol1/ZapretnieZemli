@@ -1,4 +1,6 @@
 import json
+import subprocess
+from pathlib import Path
 import unittest
 from unittest.mock import patch
 import test_server as support
@@ -146,6 +148,9 @@ class DiceTests(unittest.TestCase):
         self.assertTrue(v['diceRolls'])
         public=self.game.view(self.ps)
         self.assertEqual(public['combat']['log'],old)
+        self.assertTrue(v['combat']['event']['private'])
+        self.assertNotIn('event',public['combat'])
+        self.assertEqual(self.game.view(self.gs)['combat']['event'],v['combat']['event'])
         for e in v['diceRolls']:self.assertNotIn(e['id'],json.dumps(public))
         self.assertNotIn('commandLog',json.dumps(public))
         self.assertNotIn('diceEvents',json.dumps(public))
@@ -157,14 +162,51 @@ class DiceTests(unittest.TestCase):
             self.assertTrue(pending['private'])
             self.assertEqual(self.game.view(self.ps)['combat']['pendingRisk'],{'waiting':True})
             v=self.game.action(self.gs,dict(action='combatAction',revision=v['combatRevision'],command=dict(action='risk',roll=pending['id'],push=False,wp=0)))
+            self.assertTrue(v['combat']['event']['private'])
+            self.assertNotIn('event',self.game.view(self.ps)['combat'])
         self.assertFalse(v['combat'].get('pendingRisk'))
         # Following public actions do not republish a previous private trace.
         v=self.game.action(self.gs,dict(action='combatAction',revision=v['combatRevision'],command=dict(action='defense',unit=npc['id'],value='none')))
         self.assertEqual(self.game.view(self.ps)['diceRolls'],[])
+        self.assertFalse(v['combat']['event']['private'])
+        self.assertEqual(self.game.view(self.ps)['combat']['event'],v['combat']['event'])
 
     def test_invalid_pool_does_not_create_event(self):
         for value in (True,7,'12',-1):
             with self.assertRaises(ValueError):self.roll(self.gs,artifact=value)
         self.assertEqual(self.game.view(self.gs).get('diceRolls',[]),[])
+
+    def pending_weapon_attack(self,success):
+        pc=self.make_pc();npc=self.make_npc()
+        self.game.action(self.gs,dict(action='combatCreate',units=[dict(id=pc['id'],team='A'),dict(id=npc['id'],team='B')]))
+        room=self.game.room(self.gs['room']);b=room['combat'];b.update(phase='combat',round=1,turn=0,order=[pc['id'],npc['id']])
+        for i,u in enumerate(b['units']):
+            u.update(q=3+i,r=3,defense='none',fast=1,slow=1,armor=0,maxArmor=0,armorSources=[],str=8,maxStr=8,weapon='sword',gear=1,wp=0,talents={},kin='human',prideAvailable=False)
+            u['weaponStats']=dict(name='Тестовый меч',bonus=2,damage=2)
+        source="""import {riskCommand} from './combat-risk.mjs';import {attack} from './public/tools/battle-rules.js';let input='';for await(const s of process.stdin)input+=s;const {battle,success}=JSON.parse(input);let n=0;const result=riskCommand(battle,{action:'slash',target:battle.order[1],interactive:true},(s,c,d)=>attack(s,c.target,'slash',{},d),()=>success&&n++===0?6:2);process.stdout.write(JSON.stringify(result));"""
+        out=subprocess.run(['node','--input-type=module','-e',source],input=json.dumps(dict(battle=b,success=success)),text=True,encoding='utf-8',capture_output=True,cwd=Path(__file__).parents[1],check=True)
+        b=json.loads(out.stdout);b['pendingRisk']['private']=False;b.pop('diceEvents',None);b.pop('commandLog',None);b.pop('attackImpacts',None)
+        room['combat']=b;self.game.save(room);return pc['id'],npc['id'],room
+
+    def test_accept_weapon_roll_reports_original_action_and_actual_target_hit(self):
+        actor,target,room=self.pending_weapon_attack(True)
+        v=self.game.action(self.gs,dict(action='combatAction',revision=room['combatRevision'],command=dict(action='risk',roll=room['combat']['pendingRisk']['id'],push=False)))
+        event=v['combat']['event']
+        self.assertFalse(v['combat'].get('pendingRisk'))
+        self.assertEqual((event['actor'],event['target'],event['action'],event['kind']),(actor,target,'slash','strike'))
+        self.assertEqual(event['hitIds'],[target]);self.assertNotIn('attackImpacts',v['combat'])
+        self.assertEqual(event,self.game.view(self.ps)['combat']['event'])
+
+    def test_failed_push_self_damage_is_not_a_weapon_impact(self):
+        actor,target,room=self.pending_weapon_attack(False)
+        # Pre-record only the pending push's future draws for a deterministic replay.
+        room['combat']['pendingRisk']['replay']['draws'].extend([dict(sides=6,value=1)]*100)
+        self.game.save(room)
+        v=self.game.action(self.gs,dict(action='combatAction',revision=room['combatRevision'],command=dict(action='risk',roll=room['combat']['pendingRisk']['id'],push=True)))
+        units={u['id']:u for u in v['combat']['units']}
+        self.assertLess(units[actor]['str'],8);self.assertLess(units[actor]['gear'],1)
+        self.assertEqual(units[target]['str'],8)
+        self.assertEqual(v['combat']['event']['hitIds'],[])
+        self.assertNotIn('attackImpacts',v['combat'])
 
 if __name__=='__main__':unittest.main()

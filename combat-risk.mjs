@@ -11,10 +11,10 @@ export function riskCommand(input, command, execute, random=battleDie){
  const pending=input.pendingRisk;
  if(pending && (command.action!=='risk'||command.roll!==pending.id||typeof command.push!=='boolean'))throw Error('Сначала примите результат броска или пойдите на риск.');
  if(!pending&&command.action==='risk')throw Error('Этот бросок уже завершён.');
- if(!pending&&!command.interactive){input.injuryCommandId=crypto.randomUUID();execute(input,command,random);delete input.injuryCommandId;return input;}
+ if(!pending&&!command.interactive){input.attackImpacts=[];input.injuryCommandId=crypto.randomUUID();execute(input,command,random);delete input.injuryCommandId;return input;}
  const replay=pending?structuredClone(pending.replay):{before:structuredClone(input),command:structuredClone(command),draws:[],choices:[],events:0,logs:0};
  if(pending)replay.choices.push(pending.kind==='power'?(command.power||{damage:0,ignoreArmor:false}):['avoid','orc'].includes(pending.kind)?(command.wp||0):command.push);
- replay.id??=crypto.randomUUID();const s=structuredClone(replay.before);s.injuryCommandId=replay.id;s.diceEvents=[];s.commandLog=[];
+ replay.id??=crypto.randomUUID();const s=structuredClone(replay.before);s.injuryCommandId=replay.id;s.diceEvents=[];s.commandLog=[];s.attackImpacts=[];
  let draw=0,check=0;const stop={};
  const die=sides=>{const old=replay.draws[draw++];if(old){if(old.sides!==sides)throw Error('Состав броска изменился.');return old.value;}const value=random(sides);replay.draws.push({sides,value});return value;};
  s.riskCheck=(u,label,p,context)=>{

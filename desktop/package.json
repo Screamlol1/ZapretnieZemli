@@ -1,6 +1,6 @@
 {
   "name": "zapretnie-zemli-desktop",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Запретные Земли — общий игровой стол для Windows",
   "author": "Screamlol1",
   "private": true,
@@ -25,7 +25,7 @@
     "artifactName": "ZapretnieZemli-Setup-${version}-${arch}.${ext}",
     "asar": true,
     "directories": {"output": "../../outputs/windows", "buildResources": "build"},
-    "files": ["main.cjs", "host.cjs", "preload.cjs", "policy.cjs", "ui/**/*", "package.json"],
+    "files": ["main.cjs", "host.cjs", "preload.cjs", "policy.cjs", "preferences.cjs", "ui/**/*", "package.json"],
     "extraResources": [
       {"from": ".stage/game", "to": "game"},
       {"from": ".runtime", "to": "runtime"},
