@@ -6,6 +6,9 @@ export function travelStatus(s){
  const result={stage:t.phase==='planning'?0:2,action:'wait',text:'Ожидаем участников',reason:'',missing,party,own};
  if(s.combat?.phase==='combat')return {...result,text:'Идёт бой',reason:'Завершите бой перед действиями путешествия.'};
  if(s.journeyRisk){const risk=s.journeyRisk,actor=s.characters.find(c=>c.id===risk.actor),own=gm||!risk.waiting&&!risk.private&&actor?.kind==='pc'&&actor.owner===s.me.owner;return {...result,stage:1,action:own?'risk':'wait',text:own?'Решить проверку путешествия':'Ожидаем решения по броску',reason:risk.waiting?'Мастер разрешает закрытую проверку.':`Проверка: ${actor?.name||'Мастер'}. Примите результат или пойдите на риск.`};}
+ if(s.expeditionCheck){const p=s.expeditionCheck,c=s.characters.find(c=>c.id===p.actor),own=gm||!p.private&&c?.owner===s.me.owner;return {...result,stage:1,action:own?'expedition':'wait',text:own?'Завершить проверку экспедиции':'Ожидаем проверки экспедиции',reason:own?'Охота или ремонт ожидает принятия результата в карточке на карте.':'Владелец персонажа решает проверку.'};}
+ const hunt=(s.hunts||[]).find(h=>h.stage!=='done'&&(gm||s.characters.some(c=>c.id===h.actor&&c.owner===s.me.owner)));
+ if(hunt)return {...result,stage:1,action:'expedition',text:'Завершить охоту',reason:'Выберите добычу и способ охоты в карточке на карте.'};
  if(!party.length)return {...result,action:gm?'setup':'wait',text:gm?'Собрать отряд':'Мастер собирает отряд',reason:'Выберите участников и начальный гекс.'};
  if(pending)return {...result,stage:1,action:gm?'events':'wait',text:gm?'Разрешить события':'Ожидаем решения Мастера',reason:`Незавершённых событий: ${pending}.`};
  if(t.phase==='resolving'){

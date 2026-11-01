@@ -29,10 +29,14 @@ def available(c,session):
 
 def apply(room,s,data):
     from skill_checks import signature,count,successes
-    c=character(room,data.get('character'));editable(room,dict(kind='character',id=c['id']),s)
+    import check_abilities
+    from injuries import controls
+    c=character(room,data.get('character'))
+    if not controls(c,s):raise PermissionError('Гордость использует владелец героя или Мастер.')
     if c['kind']!='pc':raise ValueError('Гордость доступна игровому персонажу.')
     rt=c['runtime'];session=room['journey']['session'];op=data.get('op');gm=s['role']=='gm'
     if op=='replace':
+        editable(room,dict(kind='character',id=c['id']),s)
         state=rt.get('pride',{})
         if not state.get('lost') or session<state['lostSession']+2:raise ValueError('После потери гордости нужна одна полная следующая игровая встреча без неё.')
         if data.get('lostSession')!=state['lostSession']:raise ValueError('Состояние гордости изменилось.')
@@ -47,14 +51,15 @@ def apply(room,s,data):
         if not request or request['id']!=data.get('request'):raise ValueError('Запрос уже изменён или завершён.')
         rt.pop('prideRequest');return
     if not available(c,session):raise ValueError('Гордость уже использована в этой встрече, потеряна или не указана в листе.')
-    r,item=check(room,c,data.get('roll'),gm)
+    ctx=check_abilities.context(room,c,data.get('roll'),gm);r=ctx['r'];item=ctx['item']
+    if r.get('pride') or not ctx['failed']:raise ValueError('Гордость используется после провала проверки и только один раз.')
     if op=='request':
         if request:raise ValueError('Сначала завершите или отмените текущий запрос гордости.')
         note=text(data.get('note',''),500)
         if not note:raise ValueError('Объясните, почему гордость помогает в этой проверке.')
-        rt['prideRequest']=dict(id=secrets.token_hex(12),roll=r['id'],event=r['diceEvent'],session=session,note=note,status='requested',private=bool(r.get('private')))
+        rt['prideRequest']=dict(id=secrets.token_hex(12),roll=data['roll'],event=ctx['event'],session=session,note=note,status='requested',private=ctx['private'])
         return
-    if not request or request['id']!=data.get('request') or request['roll']!=r['id'] or request['event']!=r['diceEvent'] or request['session']!=session:
+    if not request or request['id']!=data.get('request') or request['roll']!=data['roll'] or request['event']!=ctx['event'] or request['session']!=session:
         raise ValueError('Запрос или результат проверки уже изменился.')
     if op=='approve':
         if not gm:raise PermissionError('Применимость гордости подтверждает Мастер.')
@@ -62,14 +67,14 @@ def apply(room,s,data):
         request['status']='approved';return
     if op!='roll' or request['status']!='approved':raise ValueError('Сначала Мастер должен подтвердить применимость гордости.')
     value=die()
-    r['pride']=dict(value=value,hits=successes(value));r['hits']=count(r);r['accepted']=True
-    state=rt.setdefault('pride',{});state.update(usedSession=session,lost=r['hits']==0)
+    failed=check_abilities.after_pride(room,c,ctx,value,successes(value))
+    state=rt.setdefault('pride',{});state.update(usedSession=session,lost=failed)
     if state['lost']:
         state.update(lostSession=session,lostText=c['sheet']['pride']);c['sheet']['pride']=''
-    rt.pop('prideRequest');r['signature']=signature(c,item)
+    rt.pop('prideRequest')
     outcome=f"Гордость D12 [{value}]: +{successes(value)} успехов. Итог: {r['hits']}. "
     outcome+='Гордость потеряна; следующую полную встречу герой играет без неё.' if state['lost'] else 'Гордость использована в этой встрече.'
-    r['diceEvent']=publish(room,c['name'],'Гордость',pools(r),outcome,r.get('private',False))
+    check_abilities.refresh(room,c,ctx,outcome)
     room['journey']['gmReady']=False
 
 

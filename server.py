@@ -1,3 +1,9 @@
+import exploration
+import resident_services
+import expedition
+import afflictions
+import magic_rules
+import check_abilities
 from opposed_checks import apply as opposed_action
 from free_risk import apply as free_risk_action
 import table_tools
@@ -28,9 +34,17 @@ import sqlite3
 import subprocess
 import threading
 import time
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer as HTTPServerBase
 from pathlib import Path
 from urllib.parse import urlparse
+
+
+class ThreadingHTTPServer(HTTPServerBase):
+    # A browser opens many module/atlas requests at once; eleven clients must
+    # not overflow the small default accept queue during initial navigation.
+    request_queue_size=128
+
+
 from campaign_rules import apply as campaign_action, state as journey_state, coordinate, participants
 
 from terrain_map import load_reference, effective_world
@@ -175,6 +189,12 @@ class Game:
         injuries.redact(room,s)
         session_recap.public(room,s)
         check_state.project(room)
+        check_abilities.project(room)
+        exploration.project(room,s)
+        resident_services.project(room,s)
+        expedition.project(room,s)
+        afflictions.project(room,s)
+        magic_rules.project(room,s)
         cold_exposure.project(room,s)
         water_exposure.project(room,s)
         room['maps']['world']=effective_world(room)
@@ -201,6 +221,7 @@ class Game:
         free=room.pop('freeChecks',{}).get(s['owner'])
         if free and not free.get('done'):room['freeRisk']={'roll':free['id']}
         room.pop('journeyResolution',None)
+        if room.get('journeyRisk'):room['journeyRisk'].pop('signature',None)
         if room.get('journeyRisk',{}).get('private') and s['role']!='gm':room['journeyRisk']={'waiting':True}
         room.pop('locationHistory',None)
         artwork=room.get('mapArtwork',{})
@@ -262,15 +283,20 @@ class Game:
         previous_logs={id(entry) for entry in room['log']}
         action = data.get('action')
         gm = s['role']=='gm'
-        if room.get('waterCheck') and action not in ('waterExposure','chat','roll','freePush','freeAccept'):
+        magic_rules.guard(room,s,data)
+        if room.get('afflictionCheck') and action not in ('affliction','characterPride','chat','roll','freePush','freeAccept'):
+            raise ValueError('Сначала завершите проверку сопротивления яду или болезни.')
+        if room.get('expeditionCheck') and action not in ('expedition','characterPride','chat','roll','freePush','freeAccept'):
+            raise ValueError('Сначала завершите проверку экспедиции.')
+        if room.get('waterCheck') and action not in ('waterExposure','characterPride','chat','roll','freePush','freeAccept'):
             raise ValueError('Сначала завершите проверку в воде: примите результат или пойдите на риск.')
-        if room.get('coldCheck') and action not in ('coldExposure','chat','roll','freePush','freeAccept'):
+        if room.get('coldCheck') and action not in ('coldExposure','characterPride','chat','roll','freePush','freeAccept'):
             raise ValueError('Сначала завершите проверку холода: примите результат, пойдите на риск или используйте Путь леса.')
-        if room.get('treatment') and action not in ('injury','chat','roll','freePush','freeAccept','tableTool'):
+        if room.get('treatment') and action not in ('injury','characterPride','chat','roll','freePush','freeAccept','tableTool'):
             raise ValueError('Сначала завершите лечение: примите результат или пойдите на риск.')
         if room.get('treatment') and action=='tableTool' and data.get('op')=='completeFor':
             raise ValueError('Сначала завершите лечение.')
-        if room.get('journeyRisk') and action not in ('travelRisk','chat','roll','freePush','freeAccept','tableTool'):raise ValueError('Сначала завершите проверку путешествия: примите результат или пойдите на риск.')
+        if room.get('journeyRisk') and action not in ('travelRisk','characterPride','chat','roll','freePush','freeAccept','tableTool'):raise ValueError('Сначала завершите проверку путешествия: примите результат или пойдите на риск.')
         if room.get('combat',{}).get('pendingRisk') and action in ('character','actor','assignCharacter','runtime','deleteCharacter','combatCreate','combatManual','combatClose'):raise ValueError('Сначала завершите текущий боевой бросок.')
         t=journey_state(room)
         history_before=change_history.snapshot(room);history_context=change_history.context(room)
@@ -286,7 +312,17 @@ class Game:
             raise ValueError('Персонаж выполняет занятие. Завершите текущую четверть перед изменением листа или владельца.')
         if action in ('paint','mapLocation','mapArtwork','worldLayout','event','deleteCharacter','assignCharacter','deleteToken','combatCreate','combatClose','actor','combatManual') and not gm:
             raise PermissionError('Действие доступно только Мастеру.')
-        if action=='injury':
+        if action=='exploration':
+            exploration.apply(room,s,data)
+        elif action=='residentService':
+            resident_services.apply(room,s,data)
+        elif action=='expedition':
+            expedition.apply(room,s,data)
+        elif action=='affliction':
+            afflictions.apply(room,s,data)
+        elif action=='magic':
+            magic_rules.apply(room,s,data)
+        elif action=='injury':
             injuries.apply(room,s,data)
         elif action=='coldExposure':
             cold_exposure.apply(room,s,data)
@@ -493,7 +529,7 @@ class Game:
                 if c['kind']!='monster':ensure_inventory(room,c['id']);equipped=combat_gear(room,c)
                 seen.add(c['id']);characters.append(dict(character=c,team=choice['team'],equipment=equipped,initiativeGroup=choice.get('group',''),activations=choice.get('activations',1)));owners[c['id']]=c['owner']
             if len(set(c['team'] for c in characters))!=2:raise ValueError('Нужен хотя бы один боец в каждом отряде.')
-            room['combat']=self.engine(dict(create=characters,mapId=data.get('mapId','road'),sharedHeroInitiative=data.get('sharedHeroInitiative') is True))
+            room['combat']=self.engine(dict(session=room['journey']['session'],create=characters,mapId=data.get('mapId','road'),sharedHeroInitiative=data.get('sharedHeroInitiative') is True))
             room['combatOwners']=owners;room['combatRevision']=room.get('combatRevision',0)+1
         elif action=='combatAction':
             battle=room.get('combat')
@@ -603,6 +639,8 @@ class Game:
                     else:c['runtime'].pop('prey',None)
         injuries.reconcile(room,medical_before,data)
         water_exposure.observe(room)
+        afflictions.observe(room,medical_before,data)
+        magic_rules.reconcile(room)
         stamp_entries(room,previous_logs,action)
         change_history.record(room,history_before,s,data,history_context)
         room['log']=room['log'][-200:]

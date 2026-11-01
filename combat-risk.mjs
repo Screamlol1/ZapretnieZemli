@@ -3,7 +3,7 @@ import {injuryEvent} from './public/battle-injuries.js';
 import {battleDie} from './public/tools/battle-rules.js';
 import {tracePool,traceDice} from './public/dice-trace.js';
 import {powerAllowed} from './public/battle-talents.js';
-import {pushPool,canPushPool} from './public/dice-pools.js';
+import {pushPool,canPushPool,poolScore} from './public/dice-pools.js';
 
 // Resume a command from its server-owned input, replaying only already drawn dice.
 // No future random values are generated or sent to clients while a choice is pending.
@@ -18,15 +18,25 @@ export function riskCommand(input, command, execute, random=battleDie){
  let draw=0,check=0;const stop={};
  const die=sides=>{const old=replay.draws[draw++];if(old){if(old.sides!==sides)throw Error('Состав броска изменился.');return old.value;}const value=random(sides);replay.draws.push({sides,value});return value;};
  s.riskCheck=(u,label,p,context)=>{
-  if(u.monster||!canPushPool(p))return;
+  if(u.monster)return;
   let attempt=0;
   while(true){
-   const extra=attempt>0,choice=replay.choices[check++];
+   const extra=attempt>0,threshold=context.requiredSuccesses||1;
+   const alive=['str','agi','wits','emp'].every(a=>u[a]>0),dwarf=extra&&u.kind==='pc'&&!u.npc&&u.kin==='dwarf'&&alive&&willpowerAvailable(u,s)>0;
+   const pushAvailable=canPushPool(p)&&alive&&(!extra||dwarf),prideEligible=u.kind==='pc'&&u.prideAvailable===true&&label!=='Защита'&&poolScore(p).hits<threshold;
+   if(!pushAvailable&&!prideEligible)return;
+   const step=check++,choice=replay.choices[step];
+   const pride=replay.prides?.[step];
+   if(pride){
+    p.artifact??=[];p.artifact.push({sides:12,value:pride.value});u.prideAvailable=false;tracePool(s,u,'Гордость · '+label,p);return;
+   }
    if(choice===undefined){
-    const id=crypto.randomUUID();s.pendingRisk={id,actor:u.id,label,...context,...(extra?{kind:'dwarf'}:{})};
-    s.diceEvents.at(-1).risk={action:'combat',roll:id,character:u.id,attribute:context.attribute,...(extra?{kind:'dwarf',wp:willpowerAvailable(u,s)}:{})};throw stop;
+    const id=crypto.randomUUID(),score=poolScore(p),roll={id,base:[...p.base],skillDice:[...p.skill],gear:[...p.gear],penalty:[...(p.penalty||[])],artifacts:structuredClone(p.artifact||[]),artifact:[],negative:!!p.negative,hits:score.hits,pushed:extra,attribute:context.attribute,pushAvailable};
+    s.pendingRisk={id,actor:u.id,label,...context,step,roll,failed:score.hits<threshold,prideEligible,pushAvailable,...(dwarf?{kind:'dwarf',kinAttempt:attempt}:{})};
+    s.diceEvents.at(-1).risk={action:'combat',roll:id,character:u.id,attribute:context.attribute,pushAvailable,...(dwarf?{kind:'dwarf',kinAttempt:attempt,wp:willpowerAvailable(u,s)}:{})};throw stop;
    }
    if(!choice)return;
+   if(!pushAvailable)throw Error('Этот бросок уже нельзя форсировать. Можно принять результат или использовать доступную гордость.');
    if(extra)spendWillpower(u,s,1);
    const {damage,wear}=pushPool(p,die);const old=u[context.attribute];u[context.attribute]=Math.max(0,old-damage);
    endPreyOnBroken(s,u);if(old>0&&!u[context.attribute])injuryEvent(s,u,context.attribute,'other','push');
@@ -36,7 +46,8 @@ export function riskCommand(input, command, execute, random=battleDie){
    const text=`${u.name}: риск — ${context.attribute} −${damage}, износ −${wear}${u.npc?'':`, СВ +${damage}`}${extra?', дополнительный риск за 1 СВ':''}.`;
    s.diceEvents.at(-1).result+=' '+text;s.log.push(text);s.commandLog.push(text);attempt++;
    if(old>0&&!u[context.attribute])s.brokenChoice?.(u,context.attribute);
-   if(u.kin!=='dwarf'||!u[context.attribute]||!canPushPool(p)||!willpowerAvailable(u,s))return;
+   // A failed pushed check still gets a decision window for Pride. Only a PC
+   // dwarf may push again; no NPC can spend imaginary points from a PC pool.
   }
  };
  s.avoidHit=(u,hits,attacker)=>{

@@ -6,7 +6,11 @@ from inventory_rules import character, editable, text
 
 def apply(room,s,data):
     from skill_checks import ATTRS, signature, count
-    c=character(room,data.get('character'));editable(room,dict(kind='character',id=c['id']),s)
+    c=character(room,data.get('character'))
+    if data.get('op') in ('requestAdaptation','approveAdaptation','cancelAdaptation'):
+        from injuries import controls
+        if not controls(c,s):raise PermissionError('Способность доступна владельцу героя или Мастеру.')
+    else:editable(room,dict(kind='character',id=c['id']),s)
     if c['kind']!='pc':raise ValueError('Эта кнопка предназначена для способности героя.')
     rt=c['runtime'];kin=c['sheet']['kin'];op=data.get('op');gm=s['role']=='gm'
     if op=='requestAdaptation':

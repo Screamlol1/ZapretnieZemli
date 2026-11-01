@@ -16,6 +16,18 @@ def push(r,die):
 
 def score(r):
     penalty=r.get('penalty',[]).count(6)
-    positive=r['base'].count(6)+r['skillDice'].count(6)+r['gear'].count(6)+sum(max(0,a['value']//2-2) for a in r.get('artifacts',[]))
+    positive=r['base'].count(6)+r['skillDice'].count(6)+r['gear'].count(6)+sum(max(0,a['value']//2-2) for a in r.get('artifacts',[]))+r.get('pride',{}).get('hits',0)+r.get('kinSuccesses',0)
     r['netHits']=positive-penalty;r['hits']=max(0,r['netHits'])
     return positive,penalty
+
+def can_push_character(c,r):
+    """A dwarf pays per additional push; kept 1s hurt on every push (PHB62)."""
+    from injuries import blocked,current
+    repeat=c['kind']=='pc' and c['sheet'].get('kin')=='dwarf' and c['runtime'].get('wp',0)>0
+    return bool(not r.get('pride') and not c['runtime'].get('prideRequest') and not blocked(c) and min(current(c).values())>0 and can_push(r) and (not r.get('pushed') or repeat))
+
+def repeat_push(c,r,data):
+    if not can_push_character(c,r):raise ValueError('Нет доступного риска: проверьте кости, состояние и силу воли.')
+    if r.get('pushed'):
+        if data.get('kinRepeat') is not True or type(data.get('kinAttempt'))!=int or data['kinAttempt']!=r.get('kinPushes',0):raise ValueError('Повторный риск изменился. Проверьте новые кости перед решением.')
+        c['runtime']['wp']-=1;r['kinPushes']=r.get('kinPushes',0)+1

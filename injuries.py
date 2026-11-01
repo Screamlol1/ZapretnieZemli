@@ -10,7 +10,7 @@ import secrets
 from dice_events import visibility, publish, pools, group
 from dice_pools import skill_counts, result_text, artifact_sides
 from equipment_rules import bonus, artifact, owned
-from risk_rules import push, score, can_push
+from risk_rules import push, score, can_push,can_push_character,repeat_push
 from injuries_data import TABLES, LABELS, lookup
 
 ATTRS=('str','agi','wit','emp')
@@ -34,12 +34,16 @@ def modifiers(c,skill,attribute):
     return sum(i.get('mechanics',{}).get('modifiers',{}).get(skill,0)+i.get('mechanics',{}).get('attributeModifiers',{}).get(attribute,0) for i in active(c))
 
 def blocked(c):
-    return bool(c.get('runtime',{}).get('dead') or any(i.get('overdue') or i.get('mechanics',{}).get('incapacitated') for i in active(c)) or c.get('runtime',{}).get('meditation'))
+    from afflictions import sleeping
+    return bool(c.get('runtime',{}).get('dead') or any(i.get('overdue') or i.get('mechanics',{}).get('incapacitated') for i in active(c)) or c.get('runtime',{}).get('meditation') or sleeping(c))
 
 
 def recovery_blocked(c,attribute):
+    from afflictions import sick
+    from cold_exposure import protected
     flags=c.get('runtime',{}).get('conditions',{})
-    return bool(flags.get('thirsty') or attribute=='str' and flags.get('hungry') or attribute=='wit' and flags.get('sleepy') or attribute in ('str','wit') and flags.get('cold'))
+    insomnia=any(e.get('kind')=='insomnia' for e in c.get('runtime',{}).get('magicEffects',[]))
+    return bool(flags.get('thirsty') or attribute=='str' and flags.get('hungry') or attribute=='wit' and (flags.get('sleepy') or insomnia) or attribute in ('str','wit') and flags.get('cold') and not protected(c) or attribute in ('str','agi') and sick(c))
 
 def check_allowed(c):
     if blocked(c):raise ValueError('Персонаж сейчас не может действовать: проверьте травмы или медитацию.')
@@ -116,7 +120,7 @@ def reconcile(room,before,data):
                     pair=next((p for p in room.get('opposedChecks',[]) if p['id']==data.get('id')),None)
                     actor=pair.get('attacker',{}).get('character') if pair else None
                 is_push=not actor or actor==c['id']
-            condition=(action.startswith('travel') or action in ('coldExposure','waterExposure')) and not event
+            condition=(action.startswith('travel') or action in ('coldExposure','waterExposure','affliction')) and not event
             if is_push or condition or replayed:continue
             pending_injury(room,c,attr,event.get('table') if event else None)
             resolved_events.add(attr)
@@ -129,19 +133,26 @@ def reconcile(room,before,data):
                 resolved_events.add(attr)
         unit=next((u for u in b.get('units',[]) if u['id']==c['id']),None)
         if unit is not None:
-            unit['injuries']=copy.deepcopy(active(c));unit['dead']=bool(rt.get('dead'));unit['meditating']=bool(rt.get('meditation'))
+            from afflictions import sleeping
+            unit['poisonSleeping']=sleeping(c);unit['injuries']=copy.deepcopy(active(c));unit['dead']=bool(rt.get('dead'));unit['meditating']=bool(rt.get('meditation'))
 
 def advance(room,minutes):
     if type(minutes) not in (int,float) or not math.isfinite(minutes) or not 0<=minutes<=525600:
         raise ValueError('Укажите прошедшее игровое время от 0 до 525600 минут.')
     from cold_exposure import overdue,due
     from water_exposure import overdue as water_overdue
+    from afflictions import overdue as affliction_overdue
     if minutes and overdue(room):raise ValueError('Сначала разрешите наступившие проверки холода, затем продолжайте игровое время.')
     if minutes and water_overdue(room):raise ValueError('Сначала разрешите наступившие проверки или последствия в воде.')
+    if minutes and affliction_overdue(room):raise ValueError('Сначала разрешите наступившие проверки или последствия болезней и ядов.')
     room['medicalClock']=round(now(room)+minutes,4)
+    from cold_exposure import protected
     for c in room['characters']:
         if c['kind']=='monster':continue
         rt=c.setdefault('runtime',{});cur=current(c)
+        if protected(c) and rt.get('coldExposure'):
+            e=rt['coldExposure']
+            while e['nextAt']<=now(room):e['nextAt']+=e['intervalMinutes']
         if minutes:
             for episode in rt.get('brokenRecovery',{}).values():episode['orcReady']=False
         for i in active(c):
@@ -172,7 +183,8 @@ def sync_battle(room,c):
     cur=current(c)
     for a,k in (('str','str'),('agi','agi'),('wit','wits'),('emp','emp')):u[k]=cur[a]
     u['wp']=c['runtime'].get('wp',0)
-    u['injuries']=copy.deepcopy(active(c));u['dead']=bool(c['runtime'].get('dead'));u['meditating']=bool(c['runtime'].get('meditation'))
+    from afflictions import sleeping
+    u['poisonSleeping']=sleeping(c);u['injuries']=copy.deepcopy(active(c));u['dead']=bool(c['runtime'].get('dead'));u['meditating']=bool(c['runtime'].get('meditation'))
     room['combatRevision']=room.get('combatRevision',0)+1
 
 def assign(room,c,data):
@@ -258,9 +270,14 @@ def begin_treatment(room,s,data):
         room['combatRevision']=room.get('combatRevision',0)+1
     elif b.get('phase')=='setup':raise ValueError('Завершите подготовку боя перед лечением.')
     if room.get('journey',{}).get('phase')=='resolving':raise ValueError('Сначала завершите проверки текущей четверти суток.')
-    skill_n,penalty_n=skill_counts(healer['sheet']['skills'].get(skill,0),penalty,mod,modifiers(healer,skill,'emp'))
-    r=dict(id=secrets.token_hex(8),base=[die() for _ in range(current(healer)['emp'])],skillDice=[die() for _ in range(skill_n)],gear=[die() for _ in range(bonus(tool) if tool else 0)],
-           penalty=[die() for _ in range(penalty_n)],artifacts=[dict(sides=n,value=die(n)) for n in (([sides] if sides else [])+extras)],pushed=False,attribute='emp',skill=skill)
+    import kin_checks
+    from skill_checks import ATTRS as SKILL_ATTRIBUTES
+    original_skill=skill;adaptation=healer['runtime'].get('adaptation',{})
+    skill=kin_checks.adaptation(healer,dict(data,adaptation=data.get('adaptation') or (adaptation.get('id') if adaptation.get('status')=='approved' and adaptation.get('skill')==skill else None)),skill)
+    check_attribute=SKILL_ATTRIBUTES[skill]
+    skill_n,penalty_n=skill_counts(healer['sheet']['skills'].get(skill,0),penalty,mod,modifiers(healer,skill,check_attribute))
+    r=dict(id=secrets.token_hex(8),base=[die() for _ in range(current(healer)[check_attribute])],skillDice=[die() for _ in range(skill_n)],gear=[die() for _ in range(bonus(tool) if tool else 0)],
+           penalty=[die() for _ in range(penalty_n)],artifacts=[dict(sides=n,value=die(n)) for n in (([sides] if sides else [])+extras)],pushed=False,attribute=check_attribute,skill=skill,originalSkill=original_skill)
     score(r);attempted.append(healer['id'])
     private=visibility(s,data) or bool(healer.get('hidden') or target.get('hidden'))
     treatment=dict(healer=healer['id'],target=target['id'],purpose=purpose,attribute=attr,injury=injury['id'] if injury else None,
@@ -271,11 +288,11 @@ def begin_treatment(room,s,data):
 def announce(room,c,p):
     r=p['roll'];positive,negative=score(r)
     target=character(room,p['target'])
-    r['pushAvailable']=not r['pushed'] and can_push(r) and (r['hits']==0 or p['purpose']=='recover' and r['hits']<target['sheet']['attrs'][p['attribute']])
+    r['pushAvailable']=can_push_character(c,r) and (r['hits']==0 or p['purpose']=='recover' and r['hits']<target['sheet']['attrs'][p['attribute']])
     result=result_text(positive,negative)
     if r['pushed']:result+=f' Риск: Эмпатия −{r["damage"]}, износ −{r["wear"]}.'
-    publish(room,c['name'],'Лечение · '+dict(recover='помощь сломленному',save='спасение жизни',care='уход')[p['purpose']],pools(r),result,p['private'],
-            risk=dict(action='treatment',character=c['id'],roll=r['id'],attribute='emp'))
+    p['diceEvent']=publish(room,c['name'],'Лечение · '+dict(recover='помощь сломленному',save='спасение жизни',care='уход')[p['purpose']],pools(r),result,p['private'],
+            risk=dict(action='treatment',character=c['id'],roll=r['id'],attribute=r['attribute']))
 
 def finish_treatment(room,s,data):
     p=room.get('treatment')
@@ -284,12 +301,14 @@ def finish_treatment(room,s,data):
     if not controls(c,s) or p['private'] and s['role']!='gm':raise PermissionError('Решение принимает владелец целителя или Мастер.')
     tool=next((i for i in owned(room,c['id']) if i['id']==p['tool']),None)
     if data['op']=='push':
-        if r['pushed'] or not can_push(r) or not r.get('pushAvailable',True):raise ValueError('Риск недоступен: повтор уже был или дополнительные успехи не увеличат эффект помощи.')
+        if not r.get('pushAvailable',True):raise ValueError('Риск недоступен: повтор уже был или дополнительные успехи не увеличат эффект помощи.')
         if p['signature']!=signature(c,tool) or p['tool'] and not tool:raise ValueError('Целитель или инструмент изменился. Примите исходный результат.')
-        damage,wear=push(r,die);current(c)['emp']=max(0,current(c)['emp']-damage)
+        repeat_push(c,r,data);damage,wear=push(r,die);current(c)[r['attribute']]=max(0,current(c)[r['attribute']]-damage)
         if c['kind']=='pc':c['runtime']['wp']=min(10,c['runtime'].get('wp',0)+damage)
         if tool and wear:tool['wear']=tool.get('wear',0)+wear;tool['version']+=1
-        score(r);announce(room,c,p)
+        p['signature']=signature(c,tool);score(r);announce(room,c,p);sync_battle(room,c);return
+    from check_abilities import close_request
+    close_request(c,r['id'])
     result='Помощь не удалась. Этот целитель больше не может повторять данную попытку.'
     if r['hits']:
         if p['purpose']=='recover':

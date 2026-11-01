@@ -1,7 +1,7 @@
 import {escapeItem as esc,itemPicture} from './inventory-art.js';
 import {artifactFields,readArtifacts} from './artifact-pool.js';
 import {canPushPool} from './dice-pools.js';
-export const canPushRepair=r=>!!r&&!r.pushed&&canPushPool({...r,skill:r.skillDice,artifact:r.artifacts});
+export const canPushRepair=r=>!!r&&r.pushAvailable!==false&&(!r.pushed||r.pushAvailable===true)&&canPushPool({...r,skill:r.skillDice,artifact:r.artifacts});
 
 export const repairable=i=>i.quantity===1&&(i.wear||0)>0&&(i.bonus>0||i.armor>0)&&!(i.bonus>0&&i.armor>0);
 const stat=i=>i.armor?'защита':'бонус';
@@ -23,6 +23,6 @@ export function bindRepair(root,getState,action,dialog){
   const op=b.dataset.repairOp;
   if(op==='approve'||b.dataset.itemRepair&&getState().me.role==='gm'){approve(item);return;}
   if(b.dataset.itemRepair){dialog('Запросить ремонт: '+item.name,`<p>Мастер подтвердит время, инструменты и условия. Бросок и его последствия появятся в этом разделе.</p><label>План ремонта<textarea name="note" maxlength="500" placeholder="Где и как ремонтируете"></textarea></label>`,v=>action({action:'inventoryRepair',op:'request',id:item.id,version:item.version,note:v.get('note')}));return;}
-  b.disabled=true;try{await action({action:'inventoryRepair',op,id:item.id,version:item.version,roll:item.repair?.roll?.id});}finally{b.disabled=false;}
+  b.disabled=true;try{await action({action:'inventoryRepair',op,id:item.id,version:item.version,roll:item.repair?.roll?.id,...(op==='push'&&item.repair?.roll?.pushed?{kinRepeat:true,kinAttempt:item.repair.roll.kinPushes||0}:{})});}finally{b.disabled=false;}
  });
 }

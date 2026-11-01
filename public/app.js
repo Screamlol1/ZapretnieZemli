@@ -1,3 +1,9 @@
+import {scenePanelUI} from './scene-panel.js';
+import {playFeedbackUI} from './play-feedback.js';
+import {residentServicesUI} from './resident-services.js';
+import {afflictionsUI} from './afflictions-ui.js';
+import {checkAbilitiesUI} from './check-abilities-ui.js';
+import {renderMagic,bindMagic} from './magic-ui.js';
 import {waterUI} from './water-ui.js';
 import {coldUI} from './cold-ui.js';
 import {commandTracker} from './reliable-actions.js';
@@ -28,8 +34,8 @@ import {journeyUI} from './journey.js';
 import {worldMap} from './world-map.js';
 const $=id=>document.getElementById(id),esc=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let credentials=null;try{credentials=JSON.parse(sessionStorage.getItem('campaign')||'null');}catch{sessionStorage.removeItem('campaign');}
-let state=null,map='world',timer,busy=false,view=sessionStorage.getItem('campaign-view')||'map',lastCrew='',lastBoard='',stateEtag='',failures=0,pendingAction=false;
-if(!['map','combat','holds','crew','journal','inventory','workshop','locations'].includes(view))view='map';
+let state=null,map='world',timer,busy=false,view=sessionStorage.getItem('campaign-view')||'scene',lastCrew='',lastBoard='',stateEtag='',failures=0,pendingAction=false;
+if(!['scene','magic','map','combat','holds','crew','journal','inventory','workshop','locations'].includes(view))view='map';
 const editors=new Map();let creatorDialog=null,creatorFrame=null;
 let commands=null,commandScope='',recoveryMissing=false;
 const showRecovery=recoveryUI({check:recoverAction,retry:retryAction});
@@ -78,13 +84,24 @@ const flow=sessionFlowUI(()=>state,setView,id=>inventory.open(id));
 const medical=injuriesUI(()=>state,action,setView);
 const cold=coldUI(()=>state,action,setView);
 const water=waterUI(()=>state,action,setView);
+const afflictions=afflictionsUI(()=>state,action,setView);
+const abilities=checkAbilitiesUI(()=>state,action);
+const residents=residentServicesUI(()=>state,action);
+const scene=scenePanelUI(()=>state,action,setView,openLocation,id=>inventory.open(id));
+const feedback=playFeedbackUI(()=>state);
+const magicPanel=document.createElement('section');magicPanel.id='magicPanel';magicPanel.hidden=true;$('table').append(magicPanel);
+const magicNav=document.createElement('button');magicNav.dataset.view='magic';magicNav.textContent='Магия';document.querySelector('.workspace-nav').append(magicNav);
+let magicSignature='';
+function drawMagic(){const sig=JSON.stringify([state?.characters,state?.magicCastings,state?.magicWillpower,state?.items,state?.me,state?.medicalClock,state?.combatRevision]);if(sig!==magicSignature){magicSignature=sig;magicPanel.innerHTML=renderMagic(state);}}
+bindMagic(magicPanel,()=>state,action,()=>{magicSignature='';if(state)drawMagic();});
+document.addEventListener('open-magic',()=>setView('magic'));
 const recap=sessionRecapUI(()=>state,action,id=>{setView('inventory');if(id)inventory.open(id);});
 const shared=tableToolsUI(()=>state,action,world,setView,openLocation);
 const quickHero=compactHeroUI(()=>state,{inventory:id=>{setView('inventory');inventory.open(id);},health:id=>medical.open(id),sheet:openCreator,token:id=>{const t=state.tokens.find(t=>t.characterId===id&&t.map==='world');if(t){setView('map');requestAnimationFrame(()=>world.focusPoint(t));}else if(state.combat?.units.some(u=>u.id===id)){setView('combat');document.dispatchEvent(new CustomEvent('focus-combat-unit',{detail:id}));}else error(Error('У героя пока нет жетона на общей карте или в текущем бою.'));}});
 document.addEventListener('open-session-recap',()=>recap.open());
 document.addEventListener('open-hero-health',e=>medical.open(e.detail));
 document.addEventListener('open-hero-pride',async e=>{document.dispatchEvent(new Event('close-dice-display'));setView('inventory');await inventory.open(e.detail);const panel=document.querySelector('.pride-controls');if(panel){panel.open=true;panel.scrollIntoView({block:'center',behavior:'smooth'});}});
-function setView(next){if(next==='workshop'&&state?.me.role!=='gm')next='map';const openTravel=next==='travel';next=openTravel?'map':next;const changed=next!==view;view=next;sessionStorage.setItem('campaign-view',view);for(const [id,v] of [['map-panel','map'],['crew-panel','crew'],['journal-panel','journal'],['online-combat','combat'],['inventory-panel','inventory'],['workshop-panel','workshop'],['locations-panel','locations']])$(id).hidden=view!==v;const root=$('journey-panel'),parent=view==='holds'?$('table'):$('map-panel');if(root.parentElement!==parent)parent.append(root);root.hidden=!['map','holds'].includes(view);document.querySelectorAll('[data-journey-part]').forEach(el=>el.hidden=el.dataset.journeyPart!==(view==='map'?'travel':view));document.querySelectorAll('[data-view]').forEach(b=>{b.classList.toggle('active',b.dataset.view===view);b.setAttribute('aria-pressed',String(b.dataset.view===view));});if(openTravel){const more=root.querySelector('.travel-details');if(more)more.open=true;root.scrollIntoView({behavior:'smooth',block:'start'});}else if(changed)window.scrollTo({top:0,behavior:'smooth'});}
+function setView(next){if(next==='workshop'&&state?.me.role!=='gm')next='map';const openTravel=next==='travel';next=openTravel?'map':next;const changed=next!==view;view=next;document.body.dataset.activeView=view;sessionStorage.setItem('campaign-view',view);for(const [id,v] of [['scene-panel','scene'],['magicPanel','magic'],['map-panel','map'],['crew-panel','crew'],['journal-panel','journal'],['online-combat','combat'],['inventory-panel','inventory'],['workshop-panel','workshop'],['locations-panel','locations']])$(id).hidden=view!==v;const root=$('journey-panel'),parent=view==='holds'?$('table'):$('map-panel');if(root.parentElement!==parent)parent.append(root);root.hidden=!['map','holds'].includes(view);document.querySelectorAll('[data-journey-part]').forEach(el=>el.hidden=el.dataset.journeyPart!==(view==='map'?'travel':view));document.querySelectorAll('[data-view]').forEach(b=>{b.classList.toggle('active',b.dataset.view===view);b.setAttribute('aria-pressed',String(b.dataset.view===view));});if(openTravel){const more=root.querySelector('.travel-details');if(more)more.open=true;root.scrollIntoView({behavior:'smooth',block:'start'});}else if(changed)window.scrollTo({top:0,behavior:'smooth'});}
 
 function modeTools(){const mode=$('mode').value,gm=state?.me.role==='gm';$('paint-tools').hidden=mode!=='paint'||!gm;$('new-token-tools').hidden=mode!=='token'||!gm;$('move-tools').hidden=mode!=='move';$('hidden-cell-tools').hidden=!gm||!['paint','token'].includes(mode);$('map-route-bar').hidden=mode!=='route'||map!=='world';document.querySelectorAll('[data-world-tools]').forEach(el=>el.hidden=map!=='world');$('map-inspector').hidden=map!=='world';}
 document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));
@@ -112,7 +129,7 @@ function render(){$('support-banner').hidden=!state?.me.support;if(!state)return
  $('board').innerHTML=Array.from({length:384},(_,i)=>{const x=i%24,y=Math.floor(i/24),key=`${x},${y}`,cell=state.maps.battle[key]||{terrain:'plain'},hidden=fog.has(key),ts=state.tokens.filter(t=>t.map===map&&t.x===x&&t.y===y);return `<button data-x="${x}" data-y="${y}" data-terrain="${hidden&&!gm?'wall':cell.terrain}" class="${hidden?'secret':''} ${ts.length?'token':''}" title="${esc(ts.map(t=>t.name).join(', ')||`${x+1}, ${y+1}`)}" aria-label="${esc(`${x+1}, ${y+1}; ${hidden&&!gm?'скрыто':cell.terrain}; ${ts.map(t=>t.name).join(', ')}`)}">${hidden&&!gm?'?':ts.length?esc(ts[0].name.slice(0,2)):symbols[cell.terrain]}</button>`;}).join('');
 }}
  recoveryState();journal.render();dice.render();opposed.render();
- inventory.render();locations.render();workshop.render();renderCombat();journey.render();personal.render();flow.render();medical.render();cold.render();water.render();recap.render();shared.render();quickHero.render();modeTools();setView(view);
+ inventory.render();locations.render();workshop.render();renderCombat();journey.render();personal.render();flow.render();medical.render();cold.render();water.render();afflictions.render();abilities.render();residents.render();drawMagic();recap.render();shared.render();quickHero.render();scene.render();feedback.render();modeTools();setView(view);
 }
 $('create').onclick=()=>login(true);$('join').onclick=()=>login(false);$('leave').onclick=async()=>{try{await api('leave',{});}catch{}sessionStorage.removeItem('campaign');location.href=credentials?.account?'/':'/index.html';};
 document.querySelectorAll('[data-map]').forEach(b=>b.onclick=()=>{world.remember();map=b.dataset.map;$('mode').value='inspect';document.querySelectorAll('[data-map]').forEach(x=>x.classList.toggle('active',x===b));render();});

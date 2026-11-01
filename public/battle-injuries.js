@@ -1,5 +1,5 @@
 export function injuryEffects(u){
- const total={modifiers:{},attributeModifiers:{},runSlow:false,noTwoHand:false,damageSkills:[],incapacitated:!!(u.dead||u.meditating),paralyzed:false};
+ const total={modifiers:{},attributeModifiers:{},runSlow:false,noTwoHand:false,damageSkills:[],incapacitated:!!(u.dead||u.meditating||u.poisonSleeping),paralyzed:false};
  for(const i of u.injuries||[]){if(i.status==='fatal'||i.overdue){total.incapacitated=true;continue;}if(i.status!=='active')continue;const m=i.mechanics||{};
   for(const field of ['modifiers','attributeModifiers'])for(const [key,n] of Object.entries(m[field]||{}))total[field][key]=(total[field][key]||0)+n;
   for(const k of ['runSlow','noTwoHand','incapacitated','paralyzed'])total[k]||=!!m[k];

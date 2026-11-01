@@ -35,3 +35,16 @@ b=battle();Object.assign(b.units[0],{fast:0,slow:0,path:'blade',pathRank:2,wp:1}
 b=battle();b.turn=0;b.roundStarted=false;b.units.forEach((u,i)=>{u.team='A';u.initiative=i+1;});
 initiative(b,{action:'initiativeOffer',unit:b.units[0].id,target:b.units[1].id},()=>1);assert.throws(()=>initiative(b,{action:'initiativeAccept',unit:b.units[0].id},()=>1));initiative(b,{action:'initiativeAccept',unit:b.units[1].id},()=>1);assert.equal(b.order[0],b.units[1].id);b.roundStarted=true;assert.throws(()=>initiative(b,{action:'initiativeOffer',unit:b.units[0].id,target:b.units[1].id},()=>1));
 console.log('Risk: deferred damage, deterministic continuation, once-only push, WP before armor, distinct solid dice and initiative choice passed.');
+
+// Pride remains available after a failed pushed check, but cannot unlock a
+// second normal push. Only the server-owned replay may supply its D12 result.
+b=battle();b.units[0].prideAvailable=true;
+pending=riskCommand(b,{...command,target:b.units[1].id},execute,()=>2);
+let pushed=riskCommand(pending,{action:'risk',roll:pending.pendingRisk.id,push:true},execute,()=>2);
+assert.equal(pushed.pendingRisk.pushAvailable,false);assert.equal(pushed.pendingRisk.roll.pushed,true);
+assert.throws(()=>riskCommand(pushed,{action:'risk',roll:pushed.pendingRisk.id,push:true},execute,()=>6));
+pushed.pendingRisk.replay.prides={[pushed.pendingRisk.step]:{value:12,hits:4}};
+result=riskCommand(pushed,{action:'risk',roll:pushed.pendingRisk.id,push:false},execute,()=>{throw Error('Pride cannot redraw earlier dice');});
+assert.ok(!result.pendingRisk);assert.equal(result.units[0].prideAvailable,false);assert.ok(result.units[1].str<b.units[1].str);
+assert.ok(result.diceEvents.some(e=>e.groups.some(g=>g.sides===12&&g.values[0]===12)));
+console.log('Combat Pride: failed pushed checks, server-only D12, no duplicate costs/damage and deterministic continuation passed.');

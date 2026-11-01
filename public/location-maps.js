@@ -1,3 +1,4 @@
+import {explorationUI} from './exploration-ui.js';
 import {cultures,styleFields,stylePreview,cultureOptions} from './location-themes.js';
 import {locationEditor} from './location-editor.js';
 import {locationPopulation} from './location-population.js';
@@ -19,6 +20,7 @@ export function locationMapsUI(getState,action,show){
  const seenMap=()=>{const m=displayMap(current());return m&&$('[data-location-player-view]').checked?playerPlan(m):m;};
  const editor=locationEditor({root,viewport,canvas,current,getState,run,draw,error,canLeave:()=>{if(dirty&&!confirm('Отменить несохранённые изменения описания?'))return false;dirty=false;return true;}});
  const populationUI=locationPopulation({root,current,seenMap,getState,run,showFeature:focusFeature});
+ const exploration=explorationUI({root,current,seenMap,getState,action,canvas});
  function controls(){$('[data-location-style]').hidden=!current();$('[data-location-style-preview]').innerHTML=stylePreview(form.elements.culture.value);const kind=form.elements.kind.value,above=!['dungeon','cave'].includes(kind);form.elements.water.disabled=!above;form.elements.walls.disabled=!above||kind==='ruins';if(!above)form.elements.water.checked=form.elements.walls.checked=false;if(kind==='fortress'){form.elements.walls.checked=true;form.elements.walls.disabled=true;}}
  function sourceText(m){const src=m?.source||source;return src.kind==='hex'?'Привязана к гексу '+hexLabel(src):src.kind==='workshop'?'Карта заготовки: сначала разместите место на общей карте.':'Отдельная карта кампании · например, сцена встречи или план логова.';}
  const styleSignature=m=>JSON.stringify([m?.id,m?.culture,m?.ground,m?.roadSurface,m?.settings?.ground,m?.settings?.roadSurface]);
@@ -31,7 +33,7 @@ export function locationMapsUI(getState,action,show){
  }
  function size(){const svg=canvas.querySelector('svg'),m=current();if(!svg||!m||!viewport.clientWidth)return;viewport.style.height=(Math.min(innerHeight*.68,(viewport.clientWidth-2)*m.height/m.width)+2)+'px';root.style.setProperty('--location-map-height',viewport.style.height);const fitted=Math.min(viewport.clientWidth-2,(viewport.clientHeight-2)*m.width/m.height);svg.style.width=fitted*zoom+'px';svg.style.height='auto';svg.style.marginInline='auto';canvas.style.width=Math.max(viewport.clientWidth-2,fitted*zoom)+'px';}
  function draw(){const m=seenMap();if(!m)return;const x=viewport.scrollLeft,y=viewport.scrollTop;canvas.innerHTML=locationSVG(m,options());size();viewport.scrollLeft=x;viewport.scrollTop=y;
-  $('[data-location-legend]').innerHTML=m.features.map((f,i)=>`<button type="button" data-location-pick="${f.id}">${i+1}. ${esc(buildingLabel(m,f,i))}${f.secret?' · скрыто':''}</button>`).join('')||'<p>Нажмите объект на плане, чтобы дать ему название.</p>';editor.render();populationUI.render();
+  $('[data-location-legend]').innerHTML=m.features.map((f,i)=>`<button type="button" data-location-pick="${f.id}">${i+1}. ${esc(buildingLabel(m,f,i))}${f.secret?' · скрыто':''}</button>`).join('')||'<p>Нажмите объект на плане, чтобы дать ему название.</p>';editor.render();populationUI.render();exploration.render();
  }
  function featurePanel(){
   const m=seenMap(),f=m?.features.find(f=>f.id===featureId),panel=$('[data-location-feature-panel]');if(!f){panel.innerHTML='<h3>Осмотрите место</h3><p>Выберите здание, палатку, башню или комнату. Здесь появятся описание и заметки.</p>';dirty=false;return;}
@@ -90,7 +92,7 @@ export function locationMapsUI(getState,action,show){
   const lib=$('[data-location-library]');if(lib.innerHTML!==optionsHTML)lib.innerHTML=optionsHTML;lib.value=selected;
   const m=current();$('[data-location-empty]').hidden=!!m;$('[data-location-content]').hidden=!m;
   let share=$('[data-table-show-location]');if(!share){share=document.createElement('button');share.type='button';share.dataset.tableShowLocation='';share.textContent='Предложить группе посмотреть';$('[data-location-reveal]').after(share);}share.hidden=!isGM||!m?.revealed;share.dataset.tableShowLocation=m?.id||'';
-  if(!m){canvas.innerHTML='';$('[data-location-feature-panel]').innerHTML='';$('[data-location-legend]').innerHTML='';last='';editor.render();populationUI.render();return;}
+  if(!m){canvas.innerHTML='';$('[data-location-feature-panel]').innerHTML='';$('[data-location-legend]').innerHTML='';last='';editor.render();populationUI.render();exploration.render();return;}
   if(shown!==m.id){shown=m.id;generator(m);lib.value=m.id;}syncStyle(m);
   $('[data-location-title]').textContent=m.title;$('[data-location-status]').textContent=isGM?(m.revealed?'Карта открыта игрокам':'Карта скрыта от игроков'):'Карта открыта Мастером';$('[data-location-reveal]').textContent=m.revealed?'Скрыть карту':'Показать игрокам';$('[data-location-source]').textContent=sourceText(m);
   editor.render();loadSprites();const signature=JSON.stringify([m,getState().characters.map(c=>[c.id,c.name,c.hidden,c.kind,c.visual,c.sheet?.kin||c.kin])]);if(signature!==last){last=signature;draw();if(!dirty)featurePanel();else if(featureVersion!==m.version){const warning=$('[data-location-conflict]');if(warning)warning.textContent='Карта обновлена. Ваш текст сохранён в форме; загрузите актуальное описание перед изменением.';}}

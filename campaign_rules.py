@@ -22,8 +22,14 @@ FUNCTIONS = {
     'bakery': dict(name='Пекарня', cost={'stone':200,'wood':40}, days=7, requires=['fireplace'], builder=True, tools='Кувалда, пила', effect='Повар или пекарь: до 12 муки → еда за четверть дня.'),
     'forge': dict(name='Кузница', cost={'stone':400,'iron':60}, days=7, requires=['fireplace'], builder=True, tools='Кувалда, молоток', effect='Кузнец: до 12 железной руды → железо за четверть дня.'),
     'tower': dict(name='Сторожевая башня (дерево)', cost={'wood':200}, days=14, requires=[], builder=True, tools='Пила, молоток', effect='+2 Наблюдательности, +1 защита цитадели. Эффекты применяет Мастер.'),
+    'dovecote': dict(name='Голубятня', cost={'wood':30}, days=1, requires=[], builder=False, tools='Пила, молоток; успешный Дрессировщик', effect='Почтовые голуби; +1 репутация после постройки.'),
+    'dungeon': dict(name='Темница', cost={'stone':50,'iron':20}, days=7, requires=[], builder=False, tools='Кувалда, пила, молоток', effect='До четырёх заключённых при надзоре; +1 репутация.'),
+    'garden': dict(name='Огород', cost={}, days=30, requires=[], builder=False, tools='Кирка, лопата', effect='Весной и летом 10 овощей в неделю за одну четверть работы.'),
+    'inn': dict(name='Трактир (дерево)', cost={'wood':250}, days=7, requires=[], builder=True, tools='Пила, молоток', effect='До 12 мяса или овощей → еда за четверть; +1 репутация.'),
+    'mill': dict(name='Мельница', cost={'wood':400,'stone':10}, days=14, requires=[], builder=True, tools='Пила, молоток', effect='До 12 зерна → мука за четверть работы.'),
+    'marketplace': dict(name='Рынок', cost={'wood':60}, days=7, requires=[], builder=False, tools='Пила, молоток', effect='Доступность товаров как в деревне, торговцы без жалования; +1 репутация.'),
 }
-MATERIALS = ('wood','stone','iron','ore','flour','food','vegetables','meat','fish','pelts','copper')
+MATERIALS = ('wood','stone','iron','ore','grain','flour','food','vegetables','meat','fish','pelts','copper')
 HOOKS = {
     'plain': ['Старые межевые камни складываются в неизвестный герб.', 'Караван оставил колею, но все следы босых ног ведут обратно.'],
     'forest': ['В стволе дерева спрятана свежая карта без названий.', 'Из чащи зовут по имени человека, которого здесь никто не знает.'],
@@ -69,7 +75,8 @@ def dice(n, sides=6): return journey_risk.draw(n,sides,lambda n,sides:[secrets.r
 def journal(room,text): room['log'].append(dict(name='Путешествие',text=text))
 
 def check(c,skill,mod=0,gear=0):
-    attr={'survive':'wit','scout':'wit','endure':'str','craft':'str','shoot':'agi'}[skill]
+    from skill_checks import ATTRS
+    attr=ATTRS[skill]
     base=c.get('runtime',{}).get('current',c['sheet']['attrs']).get(attr,0)
     modifiers=list(mod) if isinstance(mod,(tuple,list)) else [mod]
     normal,penalties=skill_counts(c['sheet']['skills'].get(skill,0),*modifiers)
@@ -101,7 +108,9 @@ def try_cycle(room):
     if t.get('blocker')==water_blocker:t['blocker']=''
     from cold_exposure import overdue
     if room.get('coldCheck') or overdue(room):return
-    if room.get('journeyRisk') or not t['automatic'] or not t['party']:return
+    from afflictions import overdue as affliction_due
+    if room.get('afflictionCheck') or affliction_due(room):return
+    if room.get('journeyRisk') or room.get('expeditionCheck') or not t['automatic'] or not t['party']:return
     if t['phase']=='planning' and t['gmReady'] and not t['pending'] and all(cid in t['plans'] for cid in t['party']):
         # Validate and execute on a copy: a bad route never commits partial rolls or damage.
         trial=deepcopy(room)
@@ -134,7 +143,11 @@ def found(t,kind,amount,after=0):
 
 def counts_as_rest(c,p):
     talents=c['sheet'].get('talents',{})
-    return p.get('job') in ('rest','sleep') or p.get('role')=='lead' and talents.get('pathfinder',0)>=2 or p.get('job')=='fish' and talents.get('fisher',0)>=2 or p.get('job') in ('forageFood','forageWater') and talents.get('herbalist',0)>=2 or p.get('job')=='hunt' and talents.get('masterhunt',0)>=2 or p.get('job')=='hike' and talents.get('wanderer',0)>=3
+    return p.get('job') in ('rest','sleep') or p.get('role')=='lead' and talents.get('sailor' if p.get('water') else 'pathfinder',0)>=2 or p.get('job')=='fish' and talents.get('fisher',0)>=2 or p.get('job') in ('forageFood','forageWater') and talents.get('herbalist',0)>=2 or p.get('job')=='hunt' and talents.get('masterhunt',0)>=2 or p.get('job')=='hike' and not p.get('water') and talents.get('wanderer',0)>=3
+
+def insomnia(room,c):
+    from injuries import now
+    return any(e.get('kind')=='insomnia' and e.get('until',float('inf'))>now(room) for e in c.get('runtime',{}).get('magicEffects',[]))
 
 def apply(room,s,data):
     if data['action']=='travelRisk':return journey_risk.apply(room,s,data)
@@ -189,6 +202,7 @@ def apply(room,s,data):
         if cid not in t['party'] or not c or not gm and (c['owner']!=s['owner'] or c['kind']!='pc'): raise PermissionError('Выберите своего героя из отряда.')
         job=data.get('job'); role=data.get('role','none')
         if job not in JOBS or role not in ('none','lead','watch') or job!='hike' and role!='none': raise ValueError('Некорректное занятие или роль.')
+        if job=='sleep' and insomnia(room,c):raise ValueError('Магическая бессонница не позволяет уснуть. Выберите другое занятие или снимите заклятие.')
         if c.get('runtime',{}).get('meditation') and job!='rest':raise ValueError('Во время медитации можно только отдыхать. Сначала прервите медитацию на странице здоровья.')
         previous=t['plans'].get(cid,{})
         gear_item=data.get('gearItem','') if gm else previous.get('gearItem','')
@@ -199,6 +213,7 @@ def apply(room,s,data):
         t['plans'][cid]=dict(job=job,role=role,modifier=mod,gear=gear,scoutModifier=integer(data.get('scoutModifier',0),-10,10) if gm else previous.get('scoutModifier',0),endureModifier=integer(data.get('endureModifier',0),-10,10) if gm else previous.get('endureModifier',0),equipped=(data.get('equipped') is True if gm else previous.get('equipped',False)),darkvision=(data.get('darkvision') is True if gm else previous.get('darkvision',False)))
         if gear_item:
             t['plans'][cid]['gearItem']=gear_item;t['plans'][cid]['gear']=0
+        if t.get('vessel'):t['plans'][cid]['water']=True
         if previous and previous!=t['plans'][cid]:
             t['gmReady']=False;t['routeVersion']+=1
         t['planVersions'][cid]=t['planVersions'].get(cid,0)+1
@@ -264,13 +279,15 @@ def apply(room,s,data):
         if not c or not history or not counts_as_rest(c,history['plans'].get(c['id'],{})) or data.get('confirmed') is not True:raise ValueError('Нужен завершённый отдых или сон (в том числе от достоинства); подтвердите отсутствие препятствующих состояний и прерываний.')
         if min(c['runtime']['current'].values())<=0:raise ValueError('Восстановление сломленного персонажа сначала разрешается по отдельным правилам.')
         flags=c['runtime'].setdefault('conditions',{})
-        if history['plans'].get(c['id'],{}).get('job')=='sleep':flags['sleepy']=False
+        if history['plans'].get(c['id'],{}).get('job')=='sleep' and not insomnia(room,c):flags['sleepy']=False
         blocked=set()
         if flags.get('hungry'):blocked.add('str')
         if flags.get('sleepy'):blocked.add('wit')
         if flags.get('cold'):blocked.update(('str','wit'))
         if flags.get('thirsty'):blocked.update(c['sheet']['attrs'])
         if c['runtime'].get('waterExposure'):blocked.update(c['sheet']['attrs'])
+        from injuries import recovery_blocked
+        blocked.update(k for k in c['sheet']['attrs'] if recovery_blocked(c,k))
         restored=[k for k in c['sheet']['attrs'] if k not in blocked]
         for k in restored:c['runtime']['current'][k]=c['sheet']['attrs'][k]
         journal(room,c['name']+': подтверждён отдых. Восстановлены: '+(', '.join({'str':'ТЕЛ','agi':'ЛОВ','wit':'РАЗ','emp':'ЭМП'}[k] for k in restored) or 'нет — мешают состояния')+'.')
@@ -278,6 +295,7 @@ def apply(room,s,data):
         item=next((p for p in t['pending'] if p['id']==data.get('id')),None)
         note=str(data.get('note','')).strip()[:1000]
         if not item or not note:raise ValueError('Укажите решение Мастера.')
+        if item.get('hunt') or item.get('vessel'):raise ValueError('Завершите охоту или водную неприятность в её карточке на карте.')
         if data.get('position') is not None:t['position']=coordinate(data['position'],room)
         if data.get('reveal') is True:journal(room,item['category']+': '+note)
         t['pending'].remove(item);t['history'].append(dict(day=t['day'],quarter=t['quarter'],resolution=note,private=data.get('reveal') is not True))
@@ -313,6 +331,8 @@ def apply(room,s,data):
 
 def advance(room,data,defer_clock=False):
     t=room['journey']
+    from expedition import vessel, sea_mishap, start_hunt
+    boat=vessel(room) if t.get('vessel') else None
     from water_exposure import active as in_water
     if in_water(room):raise ValueError('Сначала завершите сцену в воде: плавание, погружение или спасение.')
     if not t['party']:raise ValueError('Сначала соберите отряд.')
@@ -322,25 +342,34 @@ def advance(room,data,defer_clock=False):
     plans=t['plans']
     if any(c['id'] not in plans for c in party):raise ValueError('Каждый участник должен выбрать занятие.')
     if any(c.get('runtime',{}).get('meditation') and plans[c['id']]['job']!='rest' for c in party):raise ValueError('Медитирующий герой должен отдыхать. Измените заявку или прервите медитацию.')
+    if any(plans[c['id']]['job']=='sleep' and insomnia(room,c) for c in party):raise ValueError('Магическая бессонница мешает заявленному сну. Измените занятие героя.')
     if any(min(c['runtime']['current'].values())<=0 for c in party):raise ValueError('В отряде есть сломленный персонаж. Сначала разрешите его состояние по правилам.')
-    hiking=all(plans[c['id']]['job']=='hike' for c in party)
-    if any(plans[c['id']]['job']=='hike' for c in party) and not hiking:raise ValueError('Для перехода весь отряд должен идти. Разделение отряда пока разрешается отдельно.')
+    hiking=bool(data.get('path')) if boat else all(plans[c['id']]['job']=='hike' for c in party)
+    if boat and hiking:
+        if boat['position']!=t['position'] or boat['condition'] not in ('sound','leaking'):raise ValueError('Судно недоступно или требует ремонта.')
+        if len(party)>boat['capacity'] or boat['cargo']>boat['cargoLimit']:raise ValueError('Превышена вместимость судна.')
+        if any(plans[c['id']]['job'] not in ('hike','watch','fish','rest','sleep') for c in party):raise ValueError('На ходу доступны управление, дозор, рыбалка, отдых и сон.')
+    if not boat and any(plans[c['id']]['job']=='hike' for c in party) and not hiking:raise ValueError('Для перехода весь отряд должен идти. Разделение отряда пока разрешается отдельно.')
     lead=[c for c in party if plans[c['id']]['role']=='lead']; watch=[c for c in party if plans[c['id']]['role']=='watch' or plans[c['id']]['job']=='watch']
     campers=[c for c in party if plans[c['id']]['job']=='camp']
     if len(lead)>1 or len(watch)>1 or len(campers)>1 or hiking and len(lead)!=1:raise ValueError('Нужен один проводник для перехода; дозорный и устроитель лагеря — не более одного.')
     path=data.get('path',[])
     if not isinstance(path,list) or len(path)>3 or not hiking and path or hiking and not path:raise ValueError('Укажите маршрут из 1–3 соседних гексов для перехода.')
     if room.get('worldLayout')=='ravenland' and not hiking and not cell_at(room,key(t['position'])).get('terrain'):raise ValueError('В этом гексе местность неизвестна. Мастер должен указать её перед разрешением четверти.')
-    position=t['position']; limit=3 if t.get('mounted') else 2; seen={key(position)}
+    position=t['position']; limit=3 if t.get('mounted') and not boat else 2; seen={key(position)}
     for p in path:
         p=coordinate(p,room)
         if not adjacent(position,p,room) or key(p) in seen:raise ValueError('Маршрут должен идти через разные соседние гексы.')
         if room.get('worldLayout')=='ravenland' and not cell_at(room,key(p)).get('terrain'):raise ValueError('Сначала укажите местность гекса по легенде карты.')
         seen.add(key(p)); terrain=cell_at(room,key(p)).get('terrain','plain'); speed=TERRAINS[terrain][1]
-        if not speed:raise ValueError('Путь перекрыт или требует водного транспорта. Переправу разрешает Мастер отдельно.')
-        limit=min(limit,1 if speed==1 else limit);position=p
+        if boat:
+            if terrain not in ('water','marsh') and not t.get('riverRoute'):raise ValueError('Для пути по реке внутри сухопутных гексов Мастер должен подтвердить речной маршрут в карточке судна.')
+            if terrain in ('highmountain','wall'):raise ValueError('Водный маршрут перекрыт.')
+        elif not speed:raise ValueError('Путь перекрыт или требует водного транспорта. Выберите судно в разделе «Водный путь».')
+        if not boat:limit=min(limit,1 if speed==1 else limit)
+        position=p
     if len(path)>limit:raise ValueError('За четверть дня доступны 2 открытых гекса пешком, 3 верхом или 1 трудный гекс.')
-    if sum(plans[c['id']]['job']=='fish' for c in party):
+    if not boat and sum(plans[c['id']]['job']=='fish' for c in party):
         water=[t['position']]+[dict(x=x,y=y) for x in range(dimensions(room)[0]) for y in range(dimensions(room)[1]) if adjacent(t['position'],dict(x=x,y=y),room)]
         if not any(cell_at(room,key(p)).get('terrain')=='water' for p in water):raise ValueError('Рыбалка требует соседнего водоёма.')
     for c in party:
@@ -352,7 +381,7 @@ def advance(room,data,defer_clock=False):
     sheltered=any(h['position']==t['position'] for h in room.get('strongholds',[])) and all(plans[c['id']]['job'] in ('rest','sleep','work','watch','camp') for c in party)
     def rolled(c,skill,mod=0,gear=None):
         p=plans[c['id']];extra=p.get({'scout':'scoutModifier','endure':'endureModifier'}.get(skill,'modifier'),0)
-        talent='pathfinder' if p['role']=='lead' else {'camp':'quartermaster','fish':'fisher','forageFood':'herbalist','forageWater':'herbalist','hunt':'masterhunt'}.get(p['job'])
+        talent=('sailor' if boat else 'pathfinder') if p['role']=='lead' else {'camp':'quartermaster','fish':'fisher','forageFood':'herbalist','forageWater':'herbalist','hunt':'masterhunt'}.get(p['job'])
         rank=c['sheet'].get('talents',{}).get(talent,0) if skill=='survive' else 0
         bonus=1 if rank>=1 else 0
         if skill=='scout' and c in watch and t.get('camp',{}).get('position')==t['position']:bonus+=t['camp'].get('watchBonus',0)
@@ -360,24 +389,33 @@ def advance(room,data,defer_clock=False):
         if skill=='survive' and p.get('gearItem') and gear is None and not selected_item:raise ValueError('Снаряжение для заявки передано. Выберите предмет заново.')
         equipment_bonus=item_bonus(selected_item) if selected_item else ((p['gear'] if skill=='survive' else 0) if gear is None else gear)
         condition_modifiers=list(mod) if isinstance(mod,(tuple,list)) else [mod]
+        original_skill=skill
+        adaptation=c['runtime'].get('adaptation',{})
+        if adaptation.get('status')=='approved' and adaptation.get('skill')==skill:
+            from kin_checks import adaptation as use_adaptation
+            skill=use_adaptation(c,{'adaptation':adaptation['id']},skill)
+        from injuries import modifiers as injury_modifiers
+        from skill_checks import ATTRS
+        condition_modifiers.append(injury_modifiers(c,skill,ATTRS[skill]))
         r=check(c,skill,[*condition_modifiers,extra,bonus],equipment_bonus)
+        r['originalSkill']=original_skill
         r['formula']=dict(base=len(r['base']),skill=c['sheet']['skills'].get(skill,0),conditions=sum(condition_modifiers),manual=extra,talent=bonus,gear=equipment_bonus,item=selected_item['name'] if selected_item else '')
         r['artifacts']=[]
         if selected_item and item_artifact(selected_item):
             sides=item_artifact(selected_item);value=dice(1,sides)[0];r['artifacts'].append(dict(sides=sides,value=value))
-        if rank>=3 and talent in ('pathfinder','quartermaster'):
+        if rank>=3 and talent in ('pathfinder','quartermaster','sailor'):
             artifact=dice(1,8)[0];r['artifact']=artifact;r['artifacts'].append(dict(sides=8,value=artifact))
         r['hits']=max(0,r['netHits']+sum(max(0,a['value']//2-2) if a['value']>=6 else 0 for a in r['artifacts']))
-        r['diceEvent']=publish_dice(room,c['name'],'Путешествие · '+skill,dice_pools(r),result_text(r['netHits']+r['penalty'].count(6)+sum(max(0,a['value']//2-2) for a in r['artifacts']),r['penalty'].count(6)),skill=='scout' or bool(c.get('hidden')))
+        r['diceEvent']=publish_dice(room,c['name'],'Путешествие · '+skill,dice_pools(r),result_text(r['netHits']+r['penalty'].count(6)+sum(max(0,a['value']//2-2) for a in r['artifacts']),r['penalty'].count(6)),original_skill=='scout' or bool(c.get('hidden')))
         journey_risk.check(room,c,r,selected_item)
         rolls.append(r);return r
-    if hiking:
+    if hiking and not boat:
         overloaded=[c for c in party if c.get('inventoryInitialized') and inventory_load(room,c)['overloaded']]
         failed=[c for c in overloaded if not rolled(c,'endure',0,0)['hits']]
         if failed:
             hiking=False;path=[]
             pending(room,'Перегруз: '+', '.join(c['name'] for c in failed),'Отряд остался на месте после неудачной Стойкости. Книга игрока, стр. 38: разгрузиться, остаться или продолжить с потерей 1 Ловкости. Иное решение и перенос подтверждает Мастер; повторно бросать за эту четверть не нужно.')
-    if hiking and t['hikes']>=2:
+    if hiking and not boat and t['hikes']>=2:
         if t.get('mounted'):raise ValueError('Форсированный марш верхом требует проверки животного. Пока разрешается Мастером отдельно.')
         fails=[]
         for c in party:
@@ -388,18 +426,29 @@ def advance(room,data,defer_clock=False):
     dark=t['quarter'] not in ({'spring':(0,1),'summer':(0,1,2),'autumn':(0,1),'winter':(1,)}[t['season']])
     if hiking:
         t.pop('camp',None)
-        t['hikes']+=1
-        if dark:
+        if not boat:t['hikes']+=1
+        if dark and not boat:
             for c in party:
                 if not plans[c['id']]['darkvision'] and not rolled(c,'scout',0,0)['hits']:
                     c['runtime']['current']['str']=max(0,c['runtime']['current']['str']-1)
+        origin=t['position'].copy()
         for p in path:
             t['position']=coordinate(p,room);completed.append(key(p))
+            if boat:boat['position']=deepcopy(t['position'])
             if key(p) in room['maps']['world']:room['maps']['world'][key(p)]['hidden']=False
             new=key(p) not in t['visited']
             if new:t['visited'].append(key(p))
             if new and not rolled(lead[0],'survive',-2 if dark else 0)['hits']:
-                pending(room,'Неприятность проводника','Книга игрока, стр. 148–149; последствия и дальнейшее перемещение решает Мастер.',10*dice(1)[0]+dice(1)[0]);break
+                if boat:sea_mishap(room,boat,lead[0])['origin']=origin
+                else:pending(room,'Неприятность проводника','Книга игрока, стр. 148–149; последствия и дальнейшее перемещение решает Мастер.',10*dice(1)[0]+dice(1)[0])
+                break
+        if boat:
+            for c in party:
+                if plans[c['id']]['job']=='fish':
+                    r=rolled(c,'survive')
+                    if r['hits']:found(t,'fish',r['hits']*(2 if c['sheet'].get('talents',{}).get('fisher',0)>=3 else 1),after=1)
+                    else:pending(room,c['name']+': рыбалка с судна','Неприятность рыбалки, Книга игрока, стр. 153.',dice(1)[0])
+                elif plans[c['id']]['job']=='sleep':c['runtime']['sleptDay']=t['day']
     elif not path and not t['pending']:
         terrain=cell_at(room,key(t['position'])).get('terrain','plain'); season={'spring':-1,'summer':0,'autumn':1,'winter':-2}[t['season']]
         for c in party:
@@ -421,8 +470,7 @@ def advance(room,data,defer_clock=False):
                     multiplier=2 if c['sheet'].get('talents',{}).get('herbalist' if job=='forageFood' else 'fisher',0)>=3 else 1
                     found(t,'vegetables' if job=='forageFood' else 'fish',r['hits']*multiplier,after=1)
                 elif job=='hunt':
-                    item=pending(room,c['name']+': добыча найдена','Книга игрока, стр. 152–153: выберите добычу (переброс за дополнительные успехи), затем Стрельба или Выживание для ловушки. Запишите мясо и шкуры вручную.',dice(1)[0])
-                    if c['sheet'].get('talents',{}).get('masterhunt',0)>=3:item['note']='Мастер охоты 3: второй вариант добычи '+str(dice(1)[0])+'.'
+                    start_hunt(room,c,r)
             elif job in ('sleep','rest'):
                 journal(room,c['name']+': '+('сон' if job=='sleep' else 'отдых')+'. Восстановление подтверждает Мастер с учётом состояний и прерываний.')
                 if job=='sleep':c['runtime']['sleptDay']=t['day']
@@ -467,6 +515,7 @@ def stronghold(room,data):
         journal(room,'Основана цитадель «'+name+'».');return
     h=next((h for h in holds if h['id']==data.get('hold')),None)
     if not h:raise ValueError('Цитадель не найдена.')
+    for k in MATERIALS:h['stock'].setdefault(k,0)
     if action=='holdRoll':
         category=data.get('category')
         if category=='guarded':

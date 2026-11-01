@@ -141,13 +141,15 @@ class InjuryRulesTests(unittest.TestCase):
         self.assertEqual(len(self.room['treatment']['roll']['skillDice']),3)
         self.finish();self.assertEqual(self.target['runtime']['current']['wit'],3)
 
-    def test_push_damages_empathy_and_tool_gives_wp_and_finalizes(self):
+    def test_push_damages_empathy_and_tool_gives_wp_then_explicit_accept(self):
         i=self.assign();self.room['items']=[dict(id='bandage',name='Повязки',quantity=1,location=dict(kind='character',id='healer'),bonus=1,wear=0,version=1)]
         with patch('injuries.die',return_value=2):self.treat(injury=i,tool='bandage')
         with patch('injuries.die',return_value=1):self.finish('push')
         self.assertEqual(self.healer['runtime']['current']['emp'],0)
         self.assertEqual(self.healer['runtime']['wp'],7)
         self.assertEqual(self.room['items'][0]['wear'],1)
+        self.assertIn('treatment',self.room)
+        self.finish('accept')
         self.assertNotIn('treatment',self.room)
         self.assertFalse(i['stabilized'])
 

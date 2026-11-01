@@ -20,16 +20,18 @@ export const terrainInfo=Object.fromEntries(Object.entries(terrainRules).map(([k
 export const terrainPalette={plain:'#867e4d',forest:'#515428',darkforest:'#343618',hills:'#91855b',mountain:'#8b8572',highmountain:'#817b66',water:'#52634d',marsh:'#76765f',rough:'#948a5a',ruin:'#77705c',road:'#ddc99c',wall:'#a69b87'};
 export const movementText=k=>k==='highmountain'?'Непроходимо':k==='water'?'Нужна лодка или плот':k==='marsh'?'Нужен плот':k==='wall'?'Путь перекрыт':terrainInfo[k][1]===1?'Один гекс за четверть дня':'До двух гексов пешком или трёх верхом';
 
-export function routeProblem(start,path,cells,mounted=false){
+export function routeProblem(start,path,cells,mounted=false,travel={}){
  if(path.length>3)return 'Не больше трёх гексов за четверть дня.';
- let prev=start,limit=mounted?3:2;const seen=new Set([`${start.x},${start.y}`]);
+ let prev=start,limit=mounted&&!travel.vessel?3:2;const seen=new Set([`${start.x},${start.y}`]);
  for(const p of path){const key=`${p.x},${p.y}`,speed=terrainInfo[cells[key]?.terrain||'plain']?.[1];
   if(!Number.isInteger(p.x)||!Number.isInteger(p.y)||!valid(p))return 'Гекс вне карты.';
   if(regional&&!cells[key]?.terrain)return 'Сначала укажите местность гекса по легенде карты.';
   if(!adjacent(prev,p))return 'Продолжайте маршрут через соседний гекс.';
   if(seen.has(key))return 'Маршрут этой четверти не должен возвращаться в тот же гекс.';
-  if(!speed)return movementText(cells[key]?.terrain||'plain')+'. Обычный переход сюда невозможен.';
-  if(speed===1)limit=1;seen.add(key);prev=p;
+  const terrain=cells[key]?.terrain||'plain';
+  if(travel.vessel){if(['highmountain','wall'].includes(terrain))return 'Водный маршрут перекрыт.';if(!['water','marsh'].includes(terrain)&&!travel.riverRoute)return 'Подтвердите речной маршрут в карточке судна.';}
+  else if(!speed)return movementText(terrain)+'. Обычный переход сюда невозможен.';
+  if(speed===1&&!travel.vessel)limit=1;seen.add(key);prev=p;
  }
- return path.length>limit?'Трудная местность: один гекс за четверть дня.':null;
+ return path.length>limit?(travel.vessel?'Водный путь: до двух гексов за четверть дня.':'Превышена дальность перехода за четверть дня.'):null;
 }

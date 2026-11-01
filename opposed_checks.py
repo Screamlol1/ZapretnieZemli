@@ -60,7 +60,14 @@ def apply(room,s,data):
         from risk_rules import can_push
         from injuries import blocked
         repeat=(action=='opposedPush' and c['kind']=='pc' and c['sheet']['kin']=='dwarf' and c['runtime'].get('wp',0)>0 and min(c['runtime']['current'].values())>0 and not blocked(c) and can_push(r))
-        p['done']=not repeat
+        from pride import available
+        can_pride=False
+        if action=='opposedPush':
+            for part,other in (('attacker','defender'),('defender','attacker')):
+                who=next(x for x in room['characters'] if x['id']==p[part]['character'])
+                failed=p[part]['hits']<=p[other]['hits'] if part=='attacker' else p[part]['hits']<p[other]['hits']
+                can_pride=can_pride or failed and available(who,room['journey']['session'])
+        p['done']=not (repeat or can_pride) if action=='opposedPush' else True
         if repeat:room['diceRolls'][-1]['risk']=dict(action='opposed',character=c['id'],roll=r['id'],opposed=p['id'],attribute=r['attribute'])
         elif action=='opposedPush':room['diceRolls'][-1].pop('risk',None)
     else:raise ValueError('Неизвестное действие встречной проверки.')

@@ -4,6 +4,10 @@ import {identityMarkup,identityColor,campaignParticipants,controllerIdentity,cur
 import {travelStatus} from '../public/travel-status.js';
 const s={id:'test',me:{owner:'a',role:'player',name:'Анна'},members:[{owner:'g',role:'gm',name:'Мастер'},{owner:'a',role:'player',name:'Анна'},{owner:'b',role:'player',name:'Борис'}],characters:[{id:'one',owner:'a',kind:'pc',name:'Альва'},{id:'two',owner:'a',kind:'pc',name:'Тор'},{id:'three',owner:'b',kind:'pc',name:'Брин'},{id:'hidden',owner:'g',kind:'npc',hidden:true,name:'SECRET'}],journey:{day:1,quarter:0,phase:'planning',party:['one','two','three'],plans:{},pending:[],completed:{},cycleParticipants:[{owner:'gm',name:'Мастер',complete:false},{owner:'a',name:'Анна',complete:false},{owner:'b',name:'Борис',complete:false}]}};
 const original=structuredClone(s);
+const hunting={...structuredClone(s),hunts:[{id:'hunt',actor:'one',stage:'prey'}]};
+assert.equal(sessionFlow(hunting).action,'expedition');assert.equal(sessionFlow(hunting).actor,'one');
+const ill={...structuredClone(s),afflictionTargets:[{character:'one',name:'Альва',affliction:{kind:'disease',phase:'daily',due:true}}]};
+assert.equal(sessionFlow(ill).action,'affliction');assert.equal(sessionFlow(ill).yourTurn,true);
 assert.equal(sessionFlow(s).yourTurn,true);assert.deepEqual(sessionFlow(s).waiting,['a','b']);
 s.journey.plans={one:{job:'rest'},three:{job:'rest'}};assert.ok(sessionFlow(s).detail.includes('Тор'));assert.equal(sessionFlow(s).yourTurn,true,'All owned heroes need declarations');assert.equal(sessionFlow(s).actor,'two');
 s.journey.plans.two={job:'rest'};assert.equal(sessionFlow(s).yourTurn,false);assert.equal(sessionFlow(s).identity.role,'gm');

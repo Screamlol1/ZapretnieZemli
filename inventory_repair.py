@@ -10,7 +10,7 @@ import time
 from dice_pools import artifact_sides, skill_counts, result_text
 from dice_events import visibility, publish, pools
 from equipment_rules import bonus, artifact, clear_slots, owned
-from risk_rules import push, score, can_push
+from risk_rules import push, score, can_push,can_push_character,repeat_push
 
 
 def die(sides=6):
@@ -69,6 +69,8 @@ def approved(room, c, target, data):
 
 
 def finish(room, c, item, r, stat):
+    from check_abilities import close_request
+    close_request(c,r.get('id'))
     old_max = item[stat]
     current = max(0, old_max-item.get('wear', 0))
     restored = min(item.get('wear', 0), r['hits']) if r['hits'] else 0
@@ -144,17 +146,22 @@ def apply(room, s, data):
         tool = next((i for i in owned(room, c['id']) if i['id'] == p['tool']), None)
         if p['tool'] and (not tool or tool['version'] != p.get('toolVersion')):
             raise ValueError('Инструмент изменился. Мастер должен заново подтвердить условия ремонта.')
-        base = c['runtime']['current']['str']
+        import kin_checks
+        from skill_checks import ATTRS
+        adaptation=c['runtime'].get('adaptation',{})
+        check_skill=kin_checks.adaptation(c,dict(data,adaptation=data.get('adaptation') or (adaptation.get('id') if adaptation.get('status')=='approved' and adaptation.get('skill')=='craft' else None)),'craft')
+        attr=ATTRS[check_skill]
+        base = c['runtime']['current'][attr]
         if base <= 0:
             raise ValueError('Персонаж сломлен по Телосложению и не может ремонтировать.')
-        skill = c['sheet']['skills'].get('craft', 0)
+        skill = c['sheet']['skills'].get(check_skill, 0)
         skill_count, penalties = skill_counts(skill, p['modifier'])
         gear = bonus(tool) if tool else 0
         sides = ([artifact(tool)] if tool and artifact(tool) else []) + p['artifacts']
         r = dict(id=secrets.token_hex(8), base=[die() for _ in range(base)], skillDice=[die() for _ in range(skill_count)],
                  gear=[die() for _ in range(gear)], penalty=[die() for _ in range(penalties)],
                  artifacts=[dict(sides=n, value=die(n)) for n in sides], pushed=False,
-                 private=visibility(s, data) or bool(c.get('hidden')), skill='craft', attribute='str',
+                 private=visibility(s, data) or bool(c.get('hidden')), skill=check_skill, originalSkill='craft', attribute=attr,
                  formula=dict(base=base, skill=skill, modifier=p['modifier'], gear=gear))
         score(r)
         item['version'] += 1
@@ -170,18 +177,22 @@ def apply(room, s, data):
             raise PermissionError('Скрытый бросок завершает Мастер.')
         tool = next((i for i in owned(room, c['id']) if i['id'] == p['tool']), None)
         if op == 'push':
-            if r.get('pushed') or not can_push(r):
+            if not can_push_character(c,r):
                 raise ValueError('Нет костей для повторного броска. Примите результат ремонта.')
             if signature(c, tool) != p['signature'] or p['tool'] and not tool:
                 raise ValueError('Персонаж или инструмент изменился. Примите исходный результат ремонта.')
+            repeat_push(c,r,data)
             damage, wear = push(r, die)
-            c['runtime']['current']['str'] = max(0, c['runtime']['current']['str']-damage)
+            c['runtime']['current'][r['attribute']] = max(0, c['runtime']['current'][r['attribute']]-damage)
             if c['kind'] == 'pc':
                 c['runtime']['wp'] = min(10, c['runtime'].get('wp', 0)+damage)
             if tool and wear:
                 tool['wear'] = tool.get('wear', 0)+wear
                 tool['version'] += 1
             score(r)
+            p['signature']=signature(c,tool);r['pushAvailable']=can_push_character(c,r)
+            r['diceEvent']=publish(room,c['name'],'Ремонт · риск',pools(r),result_text(*score(r))+' Примите результат ремонта.',r['private'],risk=dict(action='repair',character=c['id'],item=item['id'],roll=r['id']))
+            return
         result = result_text(*score(r)) + ' ' + finish(room, c, item, r, p['stat'])
         if op == 'push':
             result += f' Риск: Телосложение −{r["damage"]}, износ инструмента +{r["wear"]}.'

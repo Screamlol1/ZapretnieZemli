@@ -20,6 +20,10 @@ try{
     shield:Math.max(0,...items.map(x=>x.shield||0)),gear:items.some(x=>weapons[x.id])?BATTLE_WEAPONS[weapon].bonus:0,
     dead:!!c.runtime?.dead,meditating:!!c.runtime?.meditation,injuries:structuredClone(c.runtime?.injuries||[]),prey:structuredClone(c.runtime?.prey||null),talents:structuredClone(sheet.talents||{}),paths:structuredClone(c.kind==='npc'&&!sheet.npcTalentsConfigured?{}:sheet.paths||{}),path:sheet.path,pathRank:c.kind==='npc'&&!sheet.npcTalentsConfigured?0:sheet.pathRank||0,wp:c.kind==='pc'?c.runtime?.wp||0:0,kind:c.kind,npc:c.kind==='npc',npcTalentsConfigured:sheet.npcTalentsConfigured===true,kin:sheet.kin,visual:c.visual,magic:{},ingredients:{torch:0,blood:0,hand:0},ready:!!BATTLE_WEAPONS[weapon].crossbow};
    u.maxArmor=u.armor;
+   u.prideAvailable=!!sheet.pride?.trim()&&!c.runtime?.pride?.lost&&(c.runtime?.pride?.usedSession===undefined||c.runtime.pride.usedSession!==payload.session&&payload.session!==undefined);
+   u.magicFireproof=!!c.runtime?.magicEffects?.some(e=>e.kind==='fireproof');u.fireproof=u.magicFireproof;
+   u.burning=!!c.runtime?.magicEffects?.some(e=>e.kind==='burning');
+   u.poisonSleeping=!!c.runtime?.afflictions?.some(a=>a.phase==='sleeping');
    u.armor=Math.min(u.armor,c.runtime?.armor??u.armor);u.gear=Math.min(u.gear,c.runtime?.gearBonus??u.gear);
    if(equipment){
     const e=equipment.slots,w=e.weapon,sh=e.shield,die=i=>({D8:8,D10:10,D12:12}[i?.artifactDie]||0);

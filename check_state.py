@@ -28,3 +28,5 @@ def project(room):
         if request:
             r=room.get('gmChecks',{}).get(c['id']) if request.get('private') else c['runtime'].get('lastCheck')
             request['current']=bool(r and r.get('prideAvailable') and r['id']==request['roll'] and r['diceEvent']==request['event'] and request['session']==room['journey']['session'])
+    import check_abilities
+    check_abilities.project(room)

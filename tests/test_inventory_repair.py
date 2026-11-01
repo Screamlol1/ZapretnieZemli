@@ -111,10 +111,11 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(c['runtime']['current']['str'],before['current']['str']-1)
         self.assertEqual(c['runtime']['wp'],before['wp']+1)
         self.assertEqual(next(i for i in view['items'] if i['id']==tool['id'])['wear'],1)
-        self.assertEqual(self.item()['wear'],0)
+        self.assertEqual(self.item()['wear'],4,'Push leaves the accepted repair pending for Pride or a dwarf repeat')
         groups=view['diceRolls'][-1]['groups']
         self.assertTrue(any(g.get('held') and any(g['held']) for g in groups))
         with self.assertRaises(ValueError):self.cmd('push')
+        self.cmd('accept');self.assertEqual(self.item()['wear'],0)
 
     def test_approval_fixes_composition_and_rejects_changed_item_or_tool(self):
         self.setup_item()
@@ -206,6 +207,7 @@ class RepairTests(unittest.TestCase):
         before=next(c for c in self.game.view(self.gs)['characters'] if c['id']==self.cid)['runtime'].get('wp',0)
         with patch('inventory_repair.die',return_value=6):self.cmd('push',self.gs)
         self.assertEqual(next(c for c in self.game.view(self.gs)['characters'] if c['id']==self.cid)['runtime'].get('wp',0),before)
+        self.cmd('accept',self.gs)
         i=self.item();self.game.action(self.gs,dict(action='itemWear',id=i['id'],version=i['version'],wear=1,note='Износ'))
         room=self.game.room(self.gs['room']);room['combat']={'phase':'setup','units':[]};room['combatOwners']={self.cid:'gm'};self.game.save(room)
         with self.assertRaisesRegex(ValueError,'бой'):self.cmd('request',self.gs)

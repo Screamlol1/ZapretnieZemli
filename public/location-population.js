@@ -42,7 +42,7 @@ export function locationPopulation({root,current,seenMap,getState,run,showFeatur
  }
  function residentCard(r,compact=false){
   const h=household(r.householdId),gm=canEdit();
-  return `<article class="population-resident" data-pop-resident="${esc(r.id)}"><div><strong>${esc(r.name)}</strong><span class="population-role">${esc(r.occupation||roleName(r.role))}</span>${gm&&visibilityReasons(r).length?`<small class="population-visibility" data-pop-visibility>Не виден игрокам: ${esc(visibilityReasons(r).join(' · '))}</small>`:''}</div><p>${esc([kinName(r.kin),tables.ageGroups[r.ageGroup],tables.familyRoles[r.familyRole],h?.name].filter(Boolean).join(' · '))}</p><div class="population-addresses">${jump(h?.homeFeatureId,'Дом')}${jump(r.workplaceFeatureId,'Работа')}</div>${r.description&&!compact?`<p class="location-note">${esc(r.description)}</p>`:''}${gm?`<div class="toolbar"><button type="button" data-pop-edit="${esc(r.id)}">Изменить</button><button type="button" data-pop-reveal="${esc(r.id)}">${r.revealed?'Скрыть':'Показать игрокам'}</button><button type="button" data-pop-delete="${esc(r.id)}">Удалить</button></div>`:''}</article>`;
+  return `<article class="population-resident" data-pop-resident="${esc(r.id)}"><div><strong>${esc(r.name)}</strong><span class="population-role">${esc(r.occupation||roleName(r.role))}</span>${gm&&visibilityReasons(r).length?`<small class="population-visibility" data-pop-visibility>Не виден игрокам: ${esc(visibilityReasons(r).join(' · '))}</small>`:''}</div><p>${esc([kinName(r.kin),tables.ageGroups[r.ageGroup],tables.familyRoles[r.familyRole],h?.name].filter(Boolean).join(' · '))}</p><div class="population-addresses">${jump(h?.homeFeatureId,'Дом')}${jump(r.workplaceFeatureId,'Работа')}</div>${r.description&&!compact?`<p class="location-note">${esc(r.description)}</p>`:''}<button type="button" data-pop-services="${esc(r.id)}">Товары, услуги и поручения</button>${gm?`<div class="toolbar"><button type="button" data-pop-edit="${esc(r.id)}">Изменить</button><button type="button" data-pop-reveal="${esc(r.id)}">${r.revealed?'Скрыть':'Показать игрокам'}</button><button type="button" data-pop-delete="${esc(r.id)}">Удалить</button></div>`:''}</article>`;
  }
  function list(){
   const p=data(),q=normalized(query),filtered=p.residents.filter(r=>!role||r.role===role).filter(r=>normalized([r.name,r.occupation,roleName(r.role),household(r.householdId)?.name,r.description].join(' ')).includes(q));
@@ -71,6 +71,7 @@ export function locationPopulation({root,current,seenMap,getState,run,showFeatur
  root.addEventListener('click',async e=>{
   const b=e.target.closest('button');if(!b)return;const d=b.dataset,m=current();
   if(d.popPlace){showFeature(d.popPlace);return;}if('popOpen'in d){open();return;}if(!m)return;
+  if(d.popServices){document.dispatchEvent(new CustomEvent('open-resident-services',{detail:{map:m.id,resident:d.popServices}}));return;}
   if('popMore'in d){limit+=60;list();return;}if(!canEdit())return;
   if('popGenerate'in d)generate();if('popNew'in d)residentForm();if('popNewHousehold'in d)householdForm();if(d.popHome)householdForm({},d.popHome);
   if(d.popEdit)residentForm(data().residents.find(r=>r.id===d.popEdit));if(d.popEditHousehold)householdForm(household(d.popEditHousehold));

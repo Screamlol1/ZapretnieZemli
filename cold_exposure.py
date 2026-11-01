@@ -4,13 +4,14 @@ import secrets
 from dice_events import publish, pools
 from dice_pools import skill_counts, result_text
 from equipment_rules import owned, bonus, artifact
-from risk_rules import push, score, can_push
+from risk_rules import push, score, can_push,can_push_character,repeat_push
 import injuries
 
 
 def die(sides=6):return secrets.randbelow(sides)+1
 def exposure(c):return c.get('runtime',{}).get('coldExposure')
-def due(room,c):return bool(exposure(c) and not c.get('runtime',{}).get('dead') and injuries.now(room)>=exposure(c)['nextAt'])
+def protected(c):return any(e.get('kind')=='fireproof' for e in c.get('runtime',{}).get('magicEffects',[]))
+def due(room,c):return bool(exposure(c) and not protected(c) and not c.get('runtime',{}).get('dead') and injuries.now(room)>=exposure(c)['nextAt'])
 def fatal_due(room,c):return due(room,c) and c['runtime'].get('conditions',{}).get('cold',False) and injuries.current(c)['str']<=0
 def overdue(room):return any(due(room,c) for c in room.get('characters',[]) if c['kind']!='monster')
 def forest(c):
@@ -25,12 +26,12 @@ def log(room,c,message):room['log'].append(dict(name='Холод',text=f'{c["nam
 
 def announce(room,c,p):
     r=p['roll'];positive,negative=score(r)
-    r['pushAvailable']=bool(not r['pushed'] and not r['hits'] and can_push(r) and injuries.current(c)['str']>0)
+    r['pushAvailable']=bool(not r['hits'] and can_push_character(c,r))
     p['canForest']=bool(not r['hits'] and forest(c))
     result=result_text(positive,negative)
     if r['pushed']:result+=f' Риск: Телосложение −{r["damage"]}, износ −{r["wear"]}.'
     result+=' Примите результат; последствия холода применяются после решения.'
-    p['diceEvent']=publish(room,c['name'],'Стойкость · холод',pools(r),result,p['private'],risk=dict(action='cold',character=c['id'],roll=p['id'],attribute='str'))
+    p['diceEvent']=publish(room,c['name'],'Стойкость · холод',pools(r),result,p['private'],risk=dict(action='cold',character=c['id'],roll=p['id'],attribute=r['attribute']))
 
 
 def apply(room,s,data):
@@ -78,9 +79,12 @@ def apply(room,s,data):
         if any(i.get('repair',{}).get('status')=='rolled' for i in room.get('items',[])):raise ValueError('Сначала завершите ремонт.')
         tool=next((i for i in owned(room,c['id']) if i['id']==e['item']),None)
         if e['item'] and (not tool or tool.get('quantity')!=1 or tool.get('bonus',0) and not bonus(tool)):raise ValueError('Указанный защитный предмет недоступен или сломан. Мастер должен уточнить условия холода.')
-        count,penalties=skill_counts(c['sheet']['skills'].get('endure',0),e['modifier'],injuries.modifiers(c,'endure','str'))
+        import kin_checks
+        from skill_checks import ATTRS
+        skill=kin_checks.adaptation(c,data,'endure');attr=ATTRS[skill]
+        count,penalties=skill_counts(c['sheet']['skills'].get(skill,0),e['modifier'],injuries.modifiers(c,skill,attr))
         sides=artifact(tool) if tool else 0
-        r=dict(id=secrets.token_hex(12),base=[die() for _ in range(cur['str'])],skillDice=[die() for _ in range(count)],gear=[die() for _ in range(bonus(tool) if tool else 0)],penalty=[die() for _ in range(penalties)],artifacts=[dict(sides=sides,value=die(sides))] if sides else [],pushed=False,skill='endure',attribute='str')
+        r=dict(id=secrets.token_hex(12),base=[die() for _ in range(cur[attr])],skillDice=[die() for _ in range(count)],gear=[die() for _ in range(bonus(tool) if tool else 0)],penalty=[die() for _ in range(penalties)],artifacts=[dict(sides=sides,value=die(sides))] if sides else [],pushed=False,skill=skill,originalSkill='endure',attribute=attr)
         p=dict(id=r['id'],character=c['id'],exposure=e['id'],roll=r,private=bool(c.get('hidden')),item=e['item'],signature=injuries.signature(c,tool))
         room['coldCheck']=p;announce(room,c,p)
         return
@@ -94,12 +98,14 @@ def apply(room,s,data):
             rt['wp']-=1;r['hits']=1;r['forest']=True
         else:
             if not r.get('pushAvailable'):raise ValueError('Пойти на риск в этой проверке уже нельзя.')
-            damage,wear=push(r,die);cur['str']=max(0,cur['str']-damage)
+            repeat_push(c,r,data);damage,wear=push(r,die);cur[r['attribute']]=max(0,cur[r['attribute']]-damage)
             if c['kind']=='pc':rt['wp']=min(10,rt.get('wp',0)+damage)
             if tool and wear:tool['wear']=min(tool['bonus'],tool.get('wear',0)+wear);tool['version']+=1
             p['signature']=injuries.signature(c,tool);announce(room,c,p)
             injuries.sync_battle(room,c)
             return
+    from check_abilities import close_request
+    close_request(c,r['id'])
     success=r['hits']>0
     if not success:
         rt.setdefault('conditions',{})['cold']=True;cur['str']=max(0,cur['str']-1);cur['wit']=max(0,cur['wit']-1)
@@ -122,6 +128,7 @@ def project(room,s):
         e=exposure(c)
         if not e:continue
         e['due']=due(room,c);e['fatalDue']=fatal_due(room,c)
+        e['protected']=protected(c)
         visible={k:copy.deepcopy(v) for k,v in e.items() if k!='item'}
         targets.append(dict(id=c['id'],name=c['name'],owner=c['owner'],kind=c['kind'],cold=bool(c['runtime'].get('conditions',{}).get('cold')),dead=bool(c['runtime'].get('dead')),exposure=visible))
     room['coldTargets']=targets

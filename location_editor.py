@@ -136,7 +136,7 @@ def edit(room, m, data, art_ids):
         pts = [point(m, p) for p in raw]
         if any(math.dist(a, b) < 1 for a, b in zip(pts, pts[1:])):
             raise ValueError('Соседние точки линии должны различаться.')
-        m['paths'].append(dict(points=pts, style=style, refs=[], secret=data.get('secret') is True))
+        m['paths'].append(dict(id=secrets.token_hex(8), points=pts, style=style, refs=[], secret=data.get('secret') is True))
     elif op == 'token':
         character = next((c for c in room['characters'] if c['id'] == data.get('characterId')), None)
         if not character:

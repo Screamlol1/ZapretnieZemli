@@ -4,7 +4,7 @@ import secrets
 from dice_events import publish, pools, group
 from dice_pools import skill_counts, result_text
 from equipment_rules import owned, bonus, artifact
-from risk_rules import push, score, can_push
+from risk_rules import push, score, can_push,can_push_character,repeat_push
 import injuries
 
 
@@ -55,12 +55,12 @@ def drown_damage(room,c,e,at):
 
 def announce(room,c,p):
     r=p['roll'];positive,negative=score(r)
-    r['pushAvailable']=bool(not r['pushed'] and not r['hits'] and can_push(r) and injuries.current(c)['str']>0)
+    r['pushAvailable']=bool(not r['hits'] and can_push_character(c,r))
     result=result_text(positive,negative)
     if r['pushed']:result+=f' Риск: Телосложение −{r["damage"]}, износ −{r["wear"]}.'
     result+=' Примите результат для применения последствий.'
     p['diceEvent']=publish(room,c['name'],'Стойкость · '+('держаться на воде' if p['phase']=='afloat' else 'задержать дыхание'),pools(r),result,p['private'],
-                           risk=dict(action='water',character=c['id'],roll=p['id'],attribute='str'))
+                           risk=dict(action='water',character=c['id'],roll=p['id'],attribute=r['attribute']))
 
 
 def apply(room,s,data):
@@ -127,9 +127,12 @@ def apply(room,s,data):
         if cur['str']<=0:raise ValueError('Телосложение сломлено. Мастер должен разрешить погружение или спасение.')
         tool=next((i for i in owned(room,c['id']) if i['id']==e['item']),None)
         if e['item'] and (not tool or tool.get('quantity')!=1 or tool.get('bonus',0) and not bonus(tool)):raise ValueError('Предмет недоступен или сломан. Мастер должен уточнить условия.')
-        count,penalties=skill_counts(c['sheet']['skills'].get('endure',0),e['modifier'],injuries.modifiers(c,'endure','str'))
+        import kin_checks
+        from skill_checks import ATTRS
+        skill=kin_checks.adaptation(c,data,'endure');attr=ATTRS[skill]
+        count,penalties=skill_counts(c['sheet']['skills'].get(skill,0),e['modifier'],injuries.modifiers(c,skill,attr))
         sides=artifact(tool) if tool else 0
-        r=dict(id=secrets.token_hex(12),base=[die() for _ in range(cur['str'])],skillDice=[die() for _ in range(count)],gear=[die() for _ in range(bonus(tool) if tool else 0)],penalty=[die() for _ in range(penalties)],artifacts=[dict(sides=sides,value=die(sides))] if sides else [],pushed=False,skill='endure',attribute='str')
+        r=dict(id=secrets.token_hex(12),base=[die() for _ in range(cur[attr])],skillDice=[die() for _ in range(count)],gear=[die() for _ in range(bonus(tool) if tool else 0)],penalty=[die() for _ in range(penalties)],artifacts=[dict(sides=sides,value=die(sides))] if sides else [],pushed=False,skill=skill,originalSkill='endure',attribute=attr)
         p=dict(id=r['id'],character=c['id'],exposure=e['id'],phase=e['phase'],roll=r,private=bool(c.get('hidden')),item=e['item'],signature=injuries.signature(c,tool))
         room['waterCheck']=p;announce(room,c,p);return
     if op not in ('push','accept') or not p or p['id']!=data.get('roll') or p['character']!=c['id'] or p['exposure']!=e['id']:
@@ -138,10 +141,12 @@ def apply(room,s,data):
     if op=='push':
         if p['signature']!=injuries.signature(c,tool) or p['item'] and not tool:raise ValueError('Персонаж или предмет изменились. Примите исходный результат.')
         if not r.get('pushAvailable'):raise ValueError('Пойти на риск уже нельзя.')
-        damage,wear=push(r,die);cur['str']=max(0,cur['str']-damage)
+        repeat_push(c,r,data);damage,wear=push(r,die);cur[r['attribute']]=max(0,cur[r['attribute']]-damage)
         if c['kind']=='pc':rt['wp']=min(10,rt.get('wp',0)+damage)
         if tool and wear:tool['wear']=min(tool['bonus'],tool.get('wear',0)+wear);tool['version']+=1
         p['signature']=injuries.signature(c,tool);announce(room,c,p);injuries.sync_battle(room,c);return
+    from check_abilities import close_request
+    close_request(c,r['id'])
     if r['hits']:
         result='Персонаж удержался на воде.' if e['phase']=='afloat' else 'Дыхание удержано.'
         schedule(room,e)

@@ -121,6 +121,8 @@ def generate(cfg):
 def find(room, identifier):
     m=next((m for m in room.get('locationMaps',[]) if m['id']==identifier),None)
     if not m:raise ValueError('Карта локации не найдена.')
+    from exploration import ensure_paths
+    ensure_paths(m)
     return m
 
 def source(room, raw):
@@ -228,12 +230,18 @@ def redact(room):
             if cell.get('hidden') or cell.get('siteHidden') or cell.get('locationMapId')!=m['id']:continue
         safe=copy.deepcopy(m);safe.pop('settings',None) # Seed could reconstruct secret rooms.
         safe.pop('undoCount',None)
-        ids={f['id'] for f in safe['features'] if not f['secret']}
+        from exploration import visible_ids, visible_point, public_state
+        ids=visible_ids(m)
+        exploring=m.get('exploration',{}).get('enabled')
+        if 'exploration' in m:safe['exploration']=public_state(m)
         if 'population' in safe:safe['population']=public_population(safe['population'],ids)
         safe['features']=[{k:v for k,v in f.items() if k not in ('gmNote','secret')} for f in safe['features'] if f['id'] in ids]
-        safe['paths']=[{k:v for k,v in p.items() if k!='secret'} for p in safe['paths'] if not p.get('secret') and all(i in ids for i in p['refs'])]
+        safe['paths']=[{k:v for k,v in p.items() if k!='secret'} for p in safe['paths'] if not p.get('secret') and all(i in ids for i in p['refs']) and (not exploring or p['refs'] or all(visible_point(m,x,y) for x,y in p['points']))]
         actors={c['id'] for c in room['characters'] if not c.get('hidden')}
-        safe['tokens']=[{k:v for k,v in t.items() if k!='secret'} for t in safe.get('tokens',[]) if not t.get('secret') and t['characterId'] in actors]
+        safe['tokens']=[{k:v for k,v in t.items() if k!='secret'} for t in safe.get('tokens',[]) if not t.get('secret') and t['characterId'] in actors and visible_point(m,t['x'],t['y'])]
+        if exploring:
+            safe['river']=[]
+            safe['trees']=[tree for tree in safe.get('trees',[]) if visible_point(m,tree[0],tree[1])]
         visible.append(safe)
     room['locationMaps']=visible;ids={m['id'] for m in visible}
     for cell in room['maps']['world'].values():

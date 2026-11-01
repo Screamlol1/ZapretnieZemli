@@ -65,6 +65,16 @@ def apply(game,s,data):
     for kind,field in (('items','version'),('characters','equipmentVersion'),('workshop','version'),('locationMaps','version')):
         current={x['id']:x.get(field,0) for x in room.get(kind,[])}
         for x in restored.get(kind,[]):x[field]=max(x.get(field,0),current.get(x['id'],0))+1
+    for kind in ('offers','contracts','relations'):
+        key=lambda x:x.get('id') or (x.get('map'),x.get('resident'))
+        current={key(x):x.get('version',0) for x in room.get('residentServices',{}).get(kind,[])}
+        for x in restored.get('residentServices',{}).get(kind,[]):x['version']=max(x.get('version',0),current.get(key(x),0))+1
+    if restored.get('scene'):restored['scene']['version']=max(restored['scene'].get('version',0),room.get('scene',{}).get('version',0))+1
+    original_items={i['id']:i for i in document['state'].get('items',[])}
+    restored_items={i['id']:i for i in restored.get('items',[])}
+    for c in restored.get('residentServices',{}).get('contracts',[]):
+        iid=c.get('item')
+        if c['status']=='requested' and iid in restored_items and c.get('itemVersion')==original_items[iid].get('version'):c['itemVersion']=restored_items[iid]['version']
     current_chars={c['id']:c for c in room['characters']}
     for c in restored.get('characters',[]):
         p=c.get('sheet',{}).get('progression')
@@ -88,6 +98,8 @@ def apply(game,s,data):
     tools=restored.get('tableTools')
     if tools:
         tools.update(control={},pings=[],focus=None,proposals={})
+    import magic_rules
+    magic_rules.restored(restored)
     restored['changeHistory']=[];restored['changeVersions']={}
     restored['savedAt']=time.time()
     with game.db:

@@ -52,5 +52,9 @@ class RiskTests(unittest.TestCase):
         self.assertIn('journeyRisk',room);self.assertEqual(t['quarter'],0);self.game.save(room)
         v=self.game.view(self.ps);self.assertNotIn('journeyResolution',v);risk=v['journeyRisk']['id']
         with patch('campaign_rules.secrets.randbelow',return_value=5):v=self.game.action(self.ps,dict(action='travelRisk',roll=risk,push=True))
+        self.assertIn('journeyRisk',v)
+        v=self.game.action(self.ps,dict(action='travelRisk',roll=risk,push=False))
+        while self.game.view(self.gs).get('journeyRisk'):
+            following=self.game.view(self.gs)['journeyRisk'];v=self.game.action(self.gs,dict(action='travelRisk',roll=following['id'],push=False))
         self.assertNotIn('journeyRisk',v);self.assertEqual(v['journey']['quarter'],0);self.assertEqual(v['journey']['phase'],'resolving')
         with self.assertRaises(ValueError):self.game.action(self.ps,dict(action='travelRisk',roll=risk,push=True))
