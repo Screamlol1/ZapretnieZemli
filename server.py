@@ -1,4 +1,5 @@
 import exploration
+import audio_director
 import resident_services
 import expedition
 import afflictions
@@ -187,6 +188,7 @@ class Game:
         journey_state(room)
         change_history.project(room,s)
         table_tools.project(room,s)
+        audio_director.project(room)
         injuries.redact(room,s)
         session_recap.public(room,s)
         check_state.project(room)
@@ -288,20 +290,20 @@ class Game:
         previous_logs={id(entry) for entry in room['log']}
         action = data.get('action')
         gm = s['role']=='gm'
-        magic_rules.guard(room,s,data)
-        if room.get('afflictionCheck') and action not in ('affliction','characterPride','chat','roll','freePush','freeAccept'):
+        if action!='audioDirector':magic_rules.guard(room,s,data)
+        if room.get('afflictionCheck') and action not in ('affliction','characterPride','chat','roll','freePush','freeAccept','audioDirector'):
             raise ValueError('Сначала завершите проверку сопротивления яду или болезни.')
-        if room.get('expeditionCheck') and action not in ('expedition','characterPride','chat','roll','freePush','freeAccept'):
+        if room.get('expeditionCheck') and action not in ('expedition','characterPride','chat','roll','freePush','freeAccept','audioDirector'):
             raise ValueError('Сначала завершите проверку экспедиции.')
-        if room.get('waterCheck') and action not in ('waterExposure','characterPride','chat','roll','freePush','freeAccept'):
+        if room.get('waterCheck') and action not in ('waterExposure','characterPride','chat','roll','freePush','freeAccept','audioDirector'):
             raise ValueError('Сначала завершите проверку в воде: примите результат или пойдите на риск.')
-        if room.get('coldCheck') and action not in ('coldExposure','characterPride','chat','roll','freePush','freeAccept'):
+        if room.get('coldCheck') and action not in ('coldExposure','characterPride','chat','roll','freePush','freeAccept','audioDirector'):
             raise ValueError('Сначала завершите проверку холода: примите результат, пойдите на риск или используйте Путь леса.')
-        if room.get('treatment') and action not in ('injury','characterPride','chat','roll','freePush','freeAccept','tableTool'):
+        if room.get('treatment') and action not in ('injury','characterPride','chat','roll','freePush','freeAccept','tableTool','audioDirector'):
             raise ValueError('Сначала завершите лечение: примите результат или пойдите на риск.')
         if room.get('treatment') and action=='tableTool' and data.get('op')=='completeFor':
             raise ValueError('Сначала завершите лечение.')
-        if room.get('journeyRisk') and action not in ('travelRisk','characterPride','chat','roll','freePush','freeAccept','tableTool'):raise ValueError('Сначала завершите проверку путешествия: примите результат или пойдите на риск.')
+        if room.get('journeyRisk') and action not in ('travelRisk','characterPride','chat','roll','freePush','freeAccept','tableTool','audioDirector'):raise ValueError('Сначала завершите проверку путешествия: примите результат или пойдите на риск.')
         if room.get('combat',{}).get('pendingRisk') and action in ('character','actor','assignCharacter','runtime','deleteCharacter','combatCreate','combatManual','combatClose'):raise ValueError('Сначала завершите текущий боевой бросок.')
         t=journey_state(room)
         history_before=change_history.snapshot(room);history_context=change_history.context(room)
@@ -317,7 +319,9 @@ class Game:
             raise ValueError('Персонаж выполняет занятие. Завершите текущую четверть перед изменением листа или владельца.')
         if action in ('paint','mapLocation','mapArtwork','worldLayout','event','deleteCharacter','assignCharacter','deleteToken','combatCreate','combatClose','actor','combatManual') and not gm:
             raise PermissionError('Действие доступно только Мастеру.')
-        if action=='exploration':
+        if action=='audioDirector':
+            audio_director.apply(room,s,data)
+        elif action=='exploration':
             exploration.apply(room,s,data)
         elif action=='residentService':
             resident_services.apply(room,s,data)
@@ -663,7 +667,7 @@ class Game:
         afflictions.observe(room,medical_before,data)
         magic_rules.reconcile(room)
         stamp_entries(room,previous_logs,action)
-        change_history.record(room,history_before,s,data,history_context)
+        if action!='audioDirector':change_history.record(room,history_before,s,data,history_context)
         room['log']=room['log'][-200:]
         room['revision']+=1
         if action in ('paint','mapArtwork','worldLayout','character','actor','deleteCharacter','assignCharacter','runtime') and room['journey']['phase']=='planning':

@@ -3,6 +3,7 @@ import copy
 import json
 import secrets
 import time
+import audio_director
 
 
 def init(db):
@@ -24,7 +25,9 @@ def allowed(room,s,scope,subject):
 
 def capture(room,scope,c=None):
     if scope=='campaign':
-        return {k:copy.deepcopy(v) for k,v in room.items() if not k.startswith('_') and k not in ('gmKey','playerKey','identities','gmAccount')}
+        snapshot={k:copy.deepcopy(v) for k,v in room.items() if not k.startswith('_') and k not in ('gmKey','playerKey','identities','gmAccount')}
+        snapshot['audioDirector']=audio_director.checkpoint(room)
+        return snapshot
     items=[{k:copy.deepcopy(v) for k,v in i.items() if k not in ('gmNote','maintenanceNote')} for i in room.get('items',[]) if i['location']==dict(kind='character',id=c['id'])]
     return dict(character=copy.deepcopy(c),items=items,
                 journey=dict(day=room.get('journey',{}).get('day',1),quarter=room.get('journey',{}).get('quarter',0)),
@@ -62,6 +65,7 @@ def apply(game,s,data):
     for key in ('id','gmKey','playerKey','identities'):restored[key]=room[key]
     if room.get('gmAccount'):restored['gmAccount']=room['gmAccount']
     for key in ('revision','combatRevision'):restored[key]=max(room.get(key,0),restored.get(key,0))+1
+    audio_director.restored(restored,room)
     for kind,field in (('items','version'),('characters','equipmentVersion'),('workshop','version'),('locationMaps','version')):
         current={x['id']:x.get(field,0) for x in room.get(kind,[])}
         for x in restored.get(kind,[]):x[field]=max(x.get(field,0),current.get(x['id'],0))+1
