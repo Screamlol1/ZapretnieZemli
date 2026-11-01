@@ -15,6 +15,11 @@ def project(room):
             locked=(battle.get('phase') in ('setup','combat') and any(u['id']==c['id'] for u in battle.get('units',[])) or
                     travel['phase']=='resolving' and c['id'] in travel['party'] or room.get('treatment') or
                     any(i.get('repair',{}).get('status')=='rolled' and i['repair']['character']==c['id'] for i in room.get('items',[])))
+            # Older saves may retain unaccepted rolls after the pair was finished
+            # or removed from its bounded history. They are no longer actionable.
+            if r.get('opposed'):
+                pair=next((p for p in room.get('opposedChecks',[]) if p['id']==r['opposed']),None)
+                locked=locked or not pair or pair.get('done')
             r['current']=not locked and not r.get('accepted') and (not r.get('item') or bool(item)) and r.get('signature')==signature(c,item)
             repeat=c['kind']=='pc' and c['sheet']['kin']=='dwarf' and c['runtime'].get('wp',0)>0
             r['pushAvailable']=bool(r['current'] and not r.get('pride') and not c['runtime'].get('prideRequest') and not blocked(c) and min(c['runtime']['current'].values())>0 and can_push(r) and (not r.get('pushed') or repeat))

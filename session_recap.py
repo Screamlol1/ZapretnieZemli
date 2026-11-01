@@ -20,7 +20,9 @@ def safe_to_finish(room):
     for c in room['characters']:
         if c.get('runtime',{}).get('prideRequest'):raise ValueError(f"{c['name']}: завершите или отмените запрос гордости.")
         for check in (c.get('runtime',{}).get('lastCheck'),room.get('gmChecks',{}).get(c['id'])):
-            if not check or check.get('pushed') or check.get('accepted'):continue
+            # Open pairs were rejected above; legacy completed pair rolls must
+            # not ask for an ordinary acceptance that the rules prohibit.
+            if not check or check.get('opposed') or check.get('pushed') or check.get('accepted'):continue
             item=next((i for i in room.get('items',[]) if i['id']==check.get('item') and i.get('location')==dict(kind='character',id=c['id'])),None)
             if check.get('item') and not item:continue
             if check.get('signature')==signature(c,item):raise ValueError(f"{c['name']}: завершите проверку в инвентаре — примите результат или пойдите на риск.")

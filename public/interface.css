@@ -122,3 +122,6 @@ dialog [role=alert]:not(:empty), .editor-error:not(:empty) { padding: 10px 12px;
   button { transition: none; }
   .found-hex .hex-highlight { animation: none; stroke: #563d12; stroke-width: 4; }
 }
+#action-recovery { border: 1px solid #c1a45e; border-radius: 8px; padding: 14px; margin: 12px 0; background: #293326; }
+#action-recovery .toolbar { flex-wrap: wrap; }
+#action-recovery p { overflow-wrap: anywhere; }

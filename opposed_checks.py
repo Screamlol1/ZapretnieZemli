@@ -4,6 +4,16 @@ from skill_checks import apply as skill_check,ATTRS
 from inventory_rules import character,editable,ensure
 from dice_events import visibility
 
+def finish_checks(room,p):
+    """Close only the two rolls belonging to this pair, including private rolls."""
+    for key in ('attacker','defender'):
+        side=p[key]
+        c=next((c for c in room['characters'] if c['id']==side['character']),None)
+        if not c:continue
+        r=room.get('gmChecks',{}).get(c['id']) if p.get('private') else c.get('runtime',{}).get('lastCheck')
+        if r and r.get('id')==side.get('roll') and r.get('opposed')==p['id']:
+            r['accepted']=True
+
 def apply(room,s,data):
     checks=room.setdefault('opposedChecks',[])
     gm=s['role']=='gm';action=data['action']
@@ -32,7 +42,7 @@ def apply(room,s,data):
     if key not in ('attacker','defender'):raise ValueError('Укажите сторону проверки.')
     side=p[key];c=character(room,side['character']);editable(room,dict(kind='character',id=c['id']),s)
     if action=='opposedCancel':
-        p['done']=True;p['cancelled']=True;p['result']='Проверка отменена.';return
+        p['done']=True;p['cancelled']=True;p['result']='Проверка отменена.';finish_checks(room,p);return
     if action=='opposedRoll':
         if side['rolled']:raise ValueError('Эта сторона уже бросила кости.')
         item=next((i for i in room.get('items',[]) if i['id']==side['item']),None)
@@ -58,5 +68,6 @@ def apply(room,s,data):
         a=p['attacker']['hits'];d=p['defender']['hits'];net=max(0,a-d);p['net']=net
         p['result']=f'Инициатор {a} − защитник {d} = {net}. '+('Инициатор добился успеха.' if net else 'Инициатор не добился успеха; ничья в пользу защиты.')
         if p['done']:
+            finish_checks(room,p)
             room['log'].append(dict(name='Встречная проверка',kind='check',text=p['result'],private=p['private']))
             if action=='opposedPush':room['diceRolls'][-1]['result']+=' '+p['result']

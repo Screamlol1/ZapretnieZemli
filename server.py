@@ -14,6 +14,7 @@ from dice_events import publish as publish_dice, group as dice_group, visibility
 import argparse
 import pride
 import check_state
+import action_receipts
 import base64
 import binascii
 import json
@@ -72,6 +73,7 @@ class Game:
         self.db = sqlite3.connect(database, check_same_thread=False)
         self.db.execute('CREATE TABLE IF NOT EXISTS rooms (id TEXT PRIMARY KEY, data TEXT)')
         init_saves(self.db)
+        action_receipts.init(self.db)
         self.sessions = {}
         self.accounts = Accounts(self)
         self.admin = Administration(self)
@@ -240,6 +242,17 @@ class Game:
         return room
 
     def action(self, s, data):
+        # Serialize even direct callers; HTTP uses the same reentrant lock.
+        with LOCK:return self._action(s,data)
+
+    def action_status(self,s,data):
+        with LOCK:
+            status=action_receipts.status(self.db,s,data.get('requestId'))
+            return dict(status=status,state=self.view(s))
+
+    def _action(self, s, data):
+        receipt,applied=action_receipts.prepare(self.db,s,data)
+        if applied:return self.view(s)
         room = self.room(s['room'])
         medical_before=injuries.snapshot(room)
         previous_logs={id(entry) for entry in room['log']}
@@ -586,6 +599,7 @@ class Game:
         label=room.pop('_sessionCheckpoint',None)
         try:
             if label:save_points.insert(self.db,room,'campaign','',label,save_points.capture(room,'campaign'))
+            action_receipts.insert(self.db,receipt)
             self.save(room)
         except Exception:
             self.db.rollback();raise
@@ -759,6 +773,9 @@ def make_handler(game,public_test=False,max_rooms=50,limits=None):
                         session=game.session(self.headers.get('Authorization',''))
                         result=game.action(session,data)
                         self.record_campaign_support(session,data)
+                    elif self.path=='/api/action-status':
+                        session=game.session(self.headers.get('Authorization',''))
+                        result=game.action_status(session,data)
                     elif self.path=='/api/saves':
                         session=game.session(self.headers.get('Authorization',''))
                         result=checkpoint_action(game,session,data)

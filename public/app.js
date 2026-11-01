@@ -1,3 +1,5 @@
+import {commandTracker} from './reliable-actions.js';
+import {recoveryUI} from './recovery-ui.js';
 import {sessionFlowUI} from './session-flow-ui.js';
 import {sessionRecapUI} from './session-recap.js';
 import {injuriesUI} from './injuries-ui.js';
@@ -27,6 +29,30 @@ let credentials=null;try{credentials=JSON.parse(sessionStorage.getItem('campaign
 let state=null,map='world',timer,busy=false,view=sessionStorage.getItem('campaign-view')||'map',lastCrew='',lastBoard='',stateEtag='',failures=0,pendingAction=false;
 if(!['map','combat','holds','crew','journal','inventory','workshop','locations'].includes(view))view='map';
 const editors=new Map();let creatorDialog=null,creatorFrame=null;
+let commands=null,commandScope='',recoveryMissing=false;
+const showRecovery=recoveryUI({check:recoverAction,retry:retryAction});
+function commandStore(){
+ if(!state)return null;
+ const scope='zz-pending-action:'+state.id+':'+state.me.owner;
+ if(scope!==commandScope){commandScope=scope;recoveryMissing=false;commands=commandTracker({storage:localStorage,key:scope,send:data=>api('action',data),status:requestId=>api('action-status',{requestId})});}
+ return commands;
+}
+function recoveryState(message=''){const tracker=commandStore();showRecovery(tracker?.pending,{busy:pendingAction||tracker?.active,missing:recoveryMissing,message});}
+async function recoverAction(){
+ const tracker=commandStore(),auth=credentials;if(!tracker?.pending||tracker.active||pendingAction)return;
+ try{const resultPromise=tracker.reconcile();recoveryState();const result=await resultPromise;if(auth!==credentials||!result)return;
+  if(acceptState(state,result.state)){state=result.state;render();}recoveryMissing=result.status==='missing';
+  if(result.status==='applied'){$('save-status').textContent='Действие сохранено · связь восстановлена';$('error').textContent='';}
+  recoveryState();
+ }catch(e){recoveryState(e.message);}
+}
+async function retryAction(){
+ const tracker=commandStore(),auth=credentials;if(!tracker?.pending||tracker.active||pendingAction)return;
+ pendingAction=true;recoveryState();$('save-status').textContent='Проверяем и отправляем прежнее действие…';
+ try{const next=await tracker.retry();if(auth!==credentials)return;if(acceptState(state,next))state=next;render();$('error').textContent='';$('save-status').textContent='Сохранено без повторного выполнения';}
+ catch(e){error(e);$('save-status').textContent=tracker.pending?'Ожидаем подтверждения':'Действие отклонено · проверьте актуальное состояние';}
+ finally{pendingAction=false;recoveryState();}
+}
 function openCreator(id){
  if(!creatorDialog){creatorDialog=document.createElement('dialog');creatorDialog.className='character-creator';creatorDialog.setAttribute('aria-label','Конструктор игрового персонажа');creatorDialog.innerHTML='<div class="toolbar"><h2>Игровой персонаж</h2><button data-close-creator>Вернуться к персонажам</button></div><iframe title="Лист игрового персонажа"></iframe>';document.body.append(creatorDialog);creatorFrame=creatorDialog.querySelector('iframe');creatorDialog.querySelector('[data-close-creator]').onclick=()=>creatorDialog.close();}
  creatorFrame.src='/tools/index.html?campaign=1'+(id?'&character='+encodeURIComponent(id):'');
@@ -38,7 +64,7 @@ const inventory=inventoryUI(()=>state,action);
 const locations=locationMapsUI(()=>state,action,()=>setView('locations'));
 const openLocation=spec=>locations.open(spec);
 const workshop=workshopUI(()=>state,action,openLocation);
-const openSaves=saveUI(()=>state,api,next=>{if(acceptState(state,next)){state=next;stateEtag='';render();}},()=>pendingAction);
+const openSaves=saveUI(()=>state,api,next=>{if(acceptState(state,next)){state=next;stateEtag='';render();}},()=>pendingAction||!!commandStore()?.pending);
 $('campaign-saves').onclick=()=>openSaves();
 const journey=journeyUI(()=>state,action);
 const personal=personalTurnUI(()=>state,journey.send,()=>setView('travel'));
@@ -65,9 +91,9 @@ $('board').onkeydown=e=>{const cell=e.target.closest('[data-x]');if(!cell)return
 async function api(path,data){const result=await requestJson(path,{data,token:credentials?.token||'',etag:path==='state'?stateEtag:''});if(path==='state')stateEtag=result.etag;return result.body;}
 function error(e){$('error').textContent=e.message;for(const d of document.querySelectorAll('dialog[open]')){let box=d.querySelector('.editor-error');if(!box){box=document.createElement('p');box.className='editor-error';box.setAttribute('role','alert');d.append(box);}box.textContent=e.message;}}
 function rememberCredentials(){sessionStorage.setItem('campaign',JSON.stringify(credentials));localStorage.setItem('resume-'+credentials.code,credentials.resume);stateEtag='';}
-async function action(data){if(['roll','characterRoll','combatAction','inventoryResource','inventoryRepair','injury'].includes(data.action))data={...data,visibility:state?.me.role==='gm'?$('dice-visibility').value:'public'};if(pendingAction){error(Error('Дождитесь сохранения предыдущего действия.'));return false;}pendingAction=true;$('save-status').textContent='Сохраняем…';const auth=credentials;try{const next=await api('action',data);if(auth!==credentials)return false;if(acceptState(state,next))state=next;render();$('error').textContent='';$('save-status').textContent='Сохранено';return true;}catch(e){error(e);$('save-status').textContent='Действие не подтверждено';return false;}finally{pendingAction=false;}}
+async function action(data){if(['roll','characterRoll','combatAction','inventoryResource','inventoryRepair','injury'].includes(data.action))data={...data,visibility:state?.me.role==='gm'?$('dice-visibility').value:'public'};if(pendingAction||commandStore()?.pending){error(Error('Дождитесь подтверждения предыдущего действия в панели связи.'));recoveryState();return false;}pendingAction=true;$('save-status').textContent='Сохраняем…';const auth=credentials;try{const next=await commandStore().perform(data);if(auth!==credentials)return false;if(acceptState(state,next))state=next;render();$('error').textContent='';$('save-status').textContent='Сохранено';return true;}catch(e){error(e);$('save-status').textContent='Действие не подтверждено';return false;}finally{pendingAction=false;recoveryState();}}
 async function login(create){$('create').disabled=$('join').disabled=true;try{credentials=await api(create?'create':'join',{name:$('name').value,title:$('title').value,code:$('code').value,key:$('key').value,resume:localStorage.getItem('resume-'+$('code').value.toUpperCase())||''});rememberCredentials();state=null;failures=0;$('error').textContent='';await poll();}catch(e){error(e);}finally{$('create').disabled=$('join').disabled=false;}}
-async function poll(){if(busy||!credentials)return;clearTimeout(timer);busy=true;const auth=credentials;try{let next;try{next=await api('state');}catch(e){if(e.status!==403)throw e;$('connection').textContent='Восстанавливаем вход…';const restored=await api('resume',{code:auth.code,resume:auth.resume});if(credentials!==auth)return;credentials=restored;rememberCredentials();next=await api('state');}if(acceptState(state,next)){state=next;render();}failures=0;$('connection').textContent=`Подключено · ${state?.members.length||0}/11`;}catch(e){failures++;$('connection').textContent='Связь потеряна · повторяем подключение';if(e.status===403){error(e);$('login').hidden=false;$('table').hidden=true;$('name').value=state?.me.name||'';$('code').value=auth.code;$('key').value=auth.role==='gm'?auth.gmKey||'':'';credentials=null;sessionStorage.removeItem('campaign');}}finally{busy=false;if(credentials)timer=setTimeout(poll,document.hidden?10000:Math.min(10000,1000*2**Math.min(failures,4)));}}
+async function poll(){if(busy||!credentials)return;clearTimeout(timer);busy=true;const auth=credentials;try{let next;try{next=await api('state');}catch(e){if(e.status!==403)throw e;$('connection').textContent='Восстанавливаем вход…';const restored=await api('resume',{code:auth.code,resume:auth.resume});if(credentials!==auth)return;credentials=restored;rememberCredentials();next=await api('state');}if(acceptState(state,next)){state=next;render();}failures=0;$('connection').textContent=`Подключено · ${state?.members.length||0}/11`;await recoverAction();}catch(e){failures++;$('connection').textContent='Связь потеряна · повторяем подключение';if(e.status===403){error(e);$('login').hidden=false;$('table').hidden=true;$('name').value=state?.me.name||'';$('code').value=auth.code;$('key').value=auth.role==='gm'?auth.gmKey||'':'';credentials=null;sessionStorage.removeItem('campaign');}}finally{busy=false;if(credentials)timer=setTimeout(poll,document.hidden?10000:Math.min(10000,1000*2**Math.min(failures,4)));}}
 window.addEventListener('online',poll);document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll();});
 function render(){$('support-banner').hidden=!state?.me.support;if(!state)return;$('login').hidden=true;$('table').hidden=false;$('campaign').textContent=state.title;const gm=state.me.role==='gm';document.querySelectorAll('.gm').forEach(el=>el.hidden=!gm);$('invites').hidden=!gm;if(gm){$('inviteText').textContent=`Для игроков: код ${credentials.code}, ключ ${credentials.playerKey}`;$('gmText').textContent=`Ключ Мастера: ${credentials.gmKey}`;}
  $('autosave-note').textContent='Подтверждённые действия сохраняются автоматически'+(state.savedAt?' · последняя запись: '+new Date(state.savedAt*1000).toLocaleString('ru-RU'):'');
@@ -81,7 +107,7 @@ function render(){$('support-banner').hidden=!state?.me.support;if(!state)return
  const fog=new Set(state.mapFog?.battle||[]);
  $('board').innerHTML=Array.from({length:384},(_,i)=>{const x=i%24,y=Math.floor(i/24),key=`${x},${y}`,cell=state.maps.battle[key]||{terrain:'plain'},hidden=fog.has(key),ts=state.tokens.filter(t=>t.map===map&&t.x===x&&t.y===y);return `<button data-x="${x}" data-y="${y}" data-terrain="${hidden&&!gm?'wall':cell.terrain}" class="${hidden?'secret':''} ${ts.length?'token':''}" title="${esc(ts.map(t=>t.name).join(', ')||`${x+1}, ${y+1}`)}" aria-label="${esc(`${x+1}, ${y+1}; ${hidden&&!gm?'скрыто':cell.terrain}; ${ts.map(t=>t.name).join(', ')}`)}">${hidden&&!gm?'?':ts.length?esc(ts[0].name.slice(0,2)):symbols[cell.terrain]}</button>`;}).join('');
 }}
- journal.render();dice.render();opposed.render();
+ recoveryState();journal.render();dice.render();opposed.render();
  inventory.render();locations.render();workshop.render();renderCombat();journey.render();personal.render();flow.render();medical.render();recap.render();shared.render();quickHero.render();modeTools();setView(view);
 }
 $('create').onclick=()=>login(true);$('join').onclick=()=>login(false);$('leave').onclick=async()=>{try{await api('leave',{});}catch{}sessionStorage.removeItem('campaign');location.href=credentials?.account?'/':'/index.html';};
